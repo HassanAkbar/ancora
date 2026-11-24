@@ -72,7 +72,7 @@ module Ancora
 
       first = terminators.first
       text = line.chomp
-      first.indented ? text.strip == first.tag : text == first.tag
+      first.indented ? text.lstrip == first.tag : text == first.tag
     end
 
     def self.refusal(count)
