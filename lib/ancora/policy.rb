@@ -126,6 +126,18 @@ module Ancora
       string_value(node[2])
     end
 
+    # `"1.2.3".freeze` (also with empty parens) is the string literal itself.
+    def frozen_receiver(node)
+      node = node[1] if node_type(node) == :method_add_arg
+      return node unless node_type(node) == :call
+
+      node.dig(3, 1) == "freeze" ? node[1] : node
+    end
+
+    def node_type(node)
+      node.first if node.is_a?(Array)
+    end
+
     def version_target?(target)
       const = target&.last
       %i[var_field const_path_field top_const_field].include?(target&.first) &&
@@ -133,6 +145,7 @@ module Ancora
     end
 
     def string_value(node)
+      node = frozen_receiver(node)
       return unless node.is_a?(Array) && node.first == :string_literal
 
       parts = node[1][1..]

@@ -192,4 +192,13 @@ RSpec.describe Ancora::Policy do
       expect(rules(root, next_version: "1.2.3")).to eq([:version_behind_next])
     end
   end
+
+  it "reads a VERSION literal followed by .freeze" do
+    checkout do |root|
+      write(root, "lib/foo/version.rb",
+            "module Foo\n  VERSION = \"1.2.3\".freeze\nend\n")
+      expect(rules(root, next_version: "1.2.4")).to eq([])
+      expect(rules(root, next_version: "1.2.3")).to eq([:version_behind_next])
+    end
+  end
 end
