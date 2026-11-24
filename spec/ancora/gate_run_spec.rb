@@ -1,0 +1,185 @@
+# frozen_string_literal: true
+
+require "spec_helper"
+require "tmpdir"
+
+RSpec.describe Ancora::GateRun do
+  let(:graph) { Ancora::Graph.from_data(FleetFixture::NETWORK, FleetFixture::DELTA) }
+  let(:chain) { FleetFixture.load_chain(FleetFixture::METANORMA_CHAIN) }
+  let(:pins) do
+    { "metanorma-iso" => "3.5.1.pre.alpha.1",
+      "metanorma-cli" => "1.18.0.pre.alpha.1" }
+  end
+
+  def run_gate(shell, dir, **opts)
+    described_class.new(chain: chain, graph: graph, workdir: dir, shell: shell,
+                        **opts)
+      .call(pins)
+  end
+
+  it "compiles the full set, then runs the canary in every configured corpus" do
+    Dir.mktmpdir do |dir|
+      shell = RecordingShell.new
+      verdict = run_gate(shell, dir)
+
+      expect(verdict).to be_green
+      expect(verdict.suspects).to be_empty
+      lock = File.read(File.join(dir, "lock", "Gemfile"))
+      expect(lock).to include('gem "metanorma-cli", "1.18.0.pre.alpha.1"')
+      expect(shell.commands.first(2)).to eq ["bundle lock", "bundle install"]
+      canaries = shell.calls.select do |c|
+        c[:command] == "bundle exec rake site"
+      end
+      expect(canaries.map { |c| File.basename(c[:chdir]) }).to eq(
+        %w[metanorma__mn-samples-iso metanorma__mn-samples-iso-private
+           metanorma__mn-samples-jis],
+      )
+      expect(canaries.map { |c| c[:timeout] }).to eq [300, 600, 240]
+      expect(canaries.first[:env]).to include(
+        "BUNDLE_GEMFILE" => File.join(dir, "lock", "Gemfile"),
+        "ANCORA_CORPUS_DOCUMENTS" => "ISO 10303-2",
+      )
+    end
+  end
+
+  it "is red, and skips the canary, when the full set does not compile" do
+    Dir.mktmpdir do |dir|
+      shell = RecordingShell.new(fail_on: ["bundle lock"])
+      verdict = run_gate(shell, dir)
+
+      expect(verdict.result).to eq "red"
+      expect(verdict.steps.map(&:status)).to eq ["failed"]
+      expect(shell.commands).to eq ["bundle lock"]
+    end
+  end
+
+  it "is red when one corpus fails, naming the gems it gates" do
+    Dir.mktmpdir do |dir|
+      shell = RecordingShell.new(fail_on: ["jis bundle exec rake site"])
+      verdict = run_gate(shell, dir)
+
+      expect(verdict.result).to eq "red"
+      expect(verdict.suspects).to eq ["metanorma-cli"]
+      expect(verdict.steps.count { |s| s.status == "failed" }).to eq 1
+    end
+  end
+
+  it "treats a corpus that overruns its budget as red" do
+    Dir.mktmpdir do |dir|
+      shell = RecordingShell.new(time_out_on: ["rake site"])
+      verdict = run_gate(shell, dir)
+
+      expect(verdict.result).to eq "red"
+      expect(verdict.steps.map(&:status)).to include("timeout")
+    end
+  end
+
+  it "is red when a configured corpus cannot be cloned" do
+    Dir.mktmpdir do |dir|
+      shell = RecordingShell.new(fail_on: ["git clone"])
+      verdict = run_gate(shell, dir)
+
+      expect(verdict.result).to eq "red"
+      expect(verdict.suspects).to eq %w[metanorma-cli metanorma-iso]
+      expect(shell.commands.grep(/rake site/)).to be_empty
+    end
+  end
+
+  it "keeps the token out of argv and the recorded output" do
+    Dir.mktmpdir do |dir|
+      shell = RecordingShell.new(fail_on: ["git clone"])
+      verdict = run_gate(shell, dir, token: "token-123")
+
+      clone = shell.calls.find { |c| c[:command].start_with?("git clone") }
+      expect(clone[:command]).not_to include("token-123")
+      expect(clone[:env]["GIT_CONFIG_VALUE_0"])
+        .to start_with("Authorization: basic ")
+      expect(verdict.steps.map(&:detail).join).not_to include("token-123")
+    end
+  end
+
+  it "runs the canary in the lock directory when the chain has no corpus" do
+    Dir.mktmpdir do |dir|
+      chain = FleetFixture.load_chain(<<~YAML)
+        name: metanorma
+        inventory:
+          orgs: [metanorma]
+          roots: [metanorma-cli]
+        canary:
+          commands: [bundle exec rake site]
+      YAML
+      shell = RecordingShell.new
+      verdict = described_class.new(chain: chain, graph: graph, workdir: dir,
+                                    shell: shell).call(pins)
+
+      expect(verdict).to be_green
+      expect(shell.calls.last[:chdir]).to eq File.join(dir, "lock")
+    end
+  end
+
+  ["gem push pkg/x.gem", "gem --norc push pkg/x.gem", "git push origin main",
+   "gh workflow run rubygems-release.yml", "bundle exec rake release"]
+    .each do |command|
+    it "refuses the publishing canary command #{command.inspect}" do
+      Dir.mktmpdir do |dir|
+        chain = FleetFixture.load_chain(<<~YAML)
+          name: metanorma
+          inventory:
+            orgs: [metanorma]
+            roots: [metanorma-cli]
+          canary:
+            commands: ["#{command}"]
+        YAML
+        shell = RecordingShell.new
+
+        expect do
+          described_class.new(chain: chain, graph: graph, workdir: dir,
+                              shell: shell).call(pins)
+        end.to raise_error(described_class::Refused, /would publish/)
+        expect(shell.calls).to be_empty
+      end
+    end
+  end
+
+  it "withholds publishing credentials from every command it runs" do
+    Dir.mktmpdir do |dir|
+      shell = RecordingShell.new
+      run_gate(shell, dir)
+
+      expect(shell.calls.map { |c| c[:env] }).to all(
+        include("GEM_HOST_API_KEY" => nil, "GITHUB_TOKEN" => nil,
+                "GH_TOKEN" => nil, "RUBYGEMS_API_KEY" => nil),
+      )
+    end
+  end
+
+  it "is red, running nothing, while an external need has no final" do
+    Dir.mktmpdir do |dir|
+      finding = Ancora::Externals::Finding.new(
+        gem: "ea", from: ["metanorma-plugin-lutaml"],
+        constraints: [">= 0.6.41"], status: :awaiting_release,
+        latest_final: "0.6.40"
+      )
+      shell = RecordingShell.new
+      gate = described_class.new(chain: chain, graph: graph, workdir: dir,
+                                 shell: shell)
+      verdict = gate.call(pins, externals: [finding])
+
+      expect(verdict.result).to eq "red"
+      expect(verdict.steps.first.detail).to include("ea")
+      expect(shell.calls).to be_empty
+    end
+  end
+
+  it "resolves a relative workdir to an absolute path" do
+    Dir.mktmpdir do |dir|
+      Dir.chdir(dir) do
+        shell = RecordingShell.new
+        run_gate(shell, "relative-work")
+
+        expect(shell.calls.map { |c| c[:chdir] })
+          .to all(start_with(File.join(Dir.pwd, "relative-work")))
+      end
+    end
+  end
+end
