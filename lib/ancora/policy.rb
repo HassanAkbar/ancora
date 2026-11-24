@@ -15,7 +15,8 @@ module Ancora
   #   lockfile_uncommitted     Gemfile.lock is git-ignored and not tracked
   class Policy
     REUSABLE_RELEASE =
-      %r{uses:\s*metanorma/ci/\.github/workflows/rubygems-release\.yml@\S+}
+      %r{\Ametanorma/ci/\.github/workflows/rubygems-release\.yml@\S+\z}
+    VERSION_LINE = /\A\s*VERSION\s*=\s*["']([^"']+)["']/
     Finding = Struct.new(:rule, :message, keyword_init: true)
 
     RULES = %i[version_behind_next release_workflow lockfile_uncommitted].freeze
@@ -43,7 +44,7 @@ module Ancora
       end
 
       files.filter_map do |file|
-        current = File.read(file)[/VERSION\s*=\s*["']([^"']+)["']/, 1]
+        current = version_literal(File.read(file))
         relative = file.delete_prefix("#{@root}/")
         if current.nil?
           finding(:version_behind_next, "#{relative}: no VERSION literal")
@@ -62,17 +63,18 @@ module Ancora
                         "missing .github/workflows/release.yml")]
       end
 
-      text = File.read(path)
-      missing = []
-      missing << "does not call the reusable rubygems-release" unless
-        REUSABLE_RELEASE.match?(text)
-      unless text.include?("next_version:")
-        missing << "has no next_version input"
-      end
-      unless text.include?("do-release")
-        missing << "ignores the do-release dispatch"
-      end
-      missing.map { |why| finding(:release_workflow, "release.yml #{why}") }
+      workflow = load_workflow(path)
+      problems = workflow ? workflow_problems(workflow) : ["is not valid YAML"]
+      problems.map { |why| finding(:release_workflow, "release.yml #{why}") }
+    end
+
+    def workflow_problems(workflow)
+      {
+        "does not call the reusable rubygems-release" =>
+          reusable_job?(workflow),
+        "has no next_version input" => next_version_input?(workflow),
+        "ignores the do-release dispatch" => do_release?(workflow),
+      }.reject { |_why, ok| ok }.keys
     end
 
     def lockfile_uncommitted
@@ -88,10 +90,56 @@ module Ancora
       status.success? && !out.strip.empty?
     end
 
+    # Ask git itself, so negation, wildcards and nested ignore files agree
+    # with what `git add` would do.
     def ignored?(name)
-      path = File.join(@root, ".gitignore")
-      File.file?(path) && File.readlines(path, chomp: true)
-        .any? { |l| ["/#{name}", name].include?(l.strip) }
+      _out, status = Open3.capture2("git", "check-ignore", "-q", "--no-index",
+                                    "--", name, chdir: @root, err: File::NULL)
+      status.success?
+    end
+
+    # First real `VERSION = "x"` assignment; comment lines are skipped and
+    # no repo code is executed.
+    def version_literal(text)
+      text.each_line do |line|
+        next if line.lstrip.start_with?("#")
+
+        match = VERSION_LINE.match(line)
+        return match[1] if match
+      end
+      nil
+    end
+
+    def load_workflow(path)
+      data = YAML.safe_load_file(path)
+      data.is_a?(Hash) ? data : nil
+    rescue Psych::Exception
+      nil
+    end
+
+    # YAML 1.1 reads the bare key `on` as boolean true.
+    def triggers(workflow)
+      on = workflow.fetch("on") { workflow[true] }
+      on.is_a?(Hash) ? on : {}
+    end
+
+    def next_version_input?(workflow)
+      dispatch = triggers(workflow)["workflow_dispatch"]
+      inputs = dispatch.is_a?(Hash) ? dispatch["inputs"] : nil
+      inputs.is_a?(Hash) && inputs.key?("next_version")
+    end
+
+    def do_release?(workflow)
+      dispatch = triggers(workflow)["repository_dispatch"]
+      types = dispatch.is_a?(Hash) ? Array(dispatch["types"]) : []
+      types.include?("do-release")
+    end
+
+    def reusable_job?(workflow)
+      jobs = workflow["jobs"]
+      jobs.is_a?(Hash) && jobs.values.any? do |job|
+        job.is_a?(Hash) && REUSABLE_RELEASE.match?(job["uses"].to_s)
+      end
     end
 
     def finding(rule, message)

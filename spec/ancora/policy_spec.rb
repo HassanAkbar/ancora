@@ -93,4 +93,77 @@ RSpec.describe Ancora::Policy do
         .to include("Gemfile.lock is tracked by git")
     end
   end
+
+  it "ignores a commented-out VERSION before the real one" do
+    checkout do |root|
+      write(root, "lib/foo/version.rb",
+            "# VERSION = \"9.9.9\"\nmodule Foo\n  VERSION = \"1.2.3\"\nend\n")
+      expect(rules(root, next_version: "1.2.4")).to eq([])
+      expect(rules(root, next_version: "1.2.3")).to eq([:version_behind_next])
+    end
+  end
+
+  it "flags a version.rb whose only VERSION is commented out" do
+    checkout do |root|
+      write(root, "lib/foo/version.rb", "# VERSION = \"0.0.1\"\n")
+      policy = described_class.new(root, next_version: "1.2.4")
+      expect(policy.check.map(&:message))
+        .to include(a_string_matching(/no VERSION literal/))
+    end
+  end
+
+  it "rejects a release workflow whose keys are only commented out" do
+    checkout do |root|
+      write(root, ".github/workflows/release.yml", <<~YML)
+        on: push
+        # workflow_dispatch:
+        #   inputs:
+        #     next_version:
+        # types: [ do-release ]
+        # uses: metanorma/ci/.github/workflows/rubygems-release.yml@main
+        jobs: {}
+      YML
+      expect(described_class.new(root).check.map(&:message).size).to eq(3)
+    end
+  end
+
+  it "rejects a release workflow whose keys are misplaced" do
+    checkout do |root|
+      write(root, ".github/workflows/release.yml", <<~YML)
+        on:
+          workflow_dispatch: {}
+        env:
+          next_version: x
+          note: do-release
+          ref: metanorma/ci/.github/workflows/rubygems-release.yml@main
+        jobs:
+          release:
+            runs-on: ubuntu-latest
+            steps:
+              - run: echo uses metanorma/ci/.github/workflows/rubygems-release.yml@main
+      YML
+      expect(described_class.new(root).check.map(&:message).size).to eq(3)
+    end
+  end
+
+  it "flags an unparseable release workflow" do
+    checkout do |root|
+      write(root, ".github/workflows/release.yml", "on: [unclosed\n")
+      expect(rules(root)).to eq([:release_workflow])
+    end
+  end
+
+  it "treats a negated Gemfile.lock ignore as not ignored" do
+    checkout do |root|
+      write(root, ".gitignore", "/Gemfile.lock\n!Gemfile.lock\n")
+      expect(rules(root)).to eq([:lockfile_uncommitted])
+    end
+  end
+
+  it "accepts a wildcard ignore that covers Gemfile.lock" do
+    checkout do |root|
+      write(root, ".gitignore", "*.lock\n")
+      expect(rules(root)).to eq([])
+    end
+  end
 end
