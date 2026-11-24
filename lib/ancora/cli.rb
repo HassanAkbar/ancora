@@ -134,7 +134,7 @@ module Ancora
       chain = load_chain(options)
       tags = options[:tags] ? Oracle::Github.new : nil
       report = FleetDrift.new(graph, chain: chain, tags: tags).report
-      DriftReport.new(report, scope: chain ? "chain #{chain.name}" : "whole fleet")
+      DriftReport.new(report, scope: chain ? "chain #{chain.name}" : DriftReport::WHOLE_FLEET)
     end
 
     def file_drift_issue(doc, repo)

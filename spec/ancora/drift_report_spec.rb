@@ -14,6 +14,12 @@ RSpec.describe Ancora::DriftReport do
     expect(doc.title).to eq "Fleet drift report 2026-W48"
   end
 
+  it "gives a chain-scoped report its own issue title" do
+    chain = described_class.new(report, scope: "chain metanorma",
+                                        date: Date.new(2026, 11, 23))
+    expect(chain.title).to eq "Fleet drift report 2026-W48 (chain metanorma)"
+  end
+
   it "summarises counts per drift class" do
     expect(doc.body).to include("gems ahead of their release: 7")
     expect(doc.body).to include("gems behind their release: 0")

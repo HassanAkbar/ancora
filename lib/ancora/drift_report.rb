@@ -7,15 +7,19 @@ module Ancora
     # GitHub rejects issue bodies over 65536 characters.
     MAX_BODY = 60_000
     LABEL = "drift-report"
+    WHOLE_FLEET = "whole fleet"
 
-    def initialize(report, scope: "whole fleet", date: Date.today)
+    def initialize(report, scope: WHOLE_FLEET, date: Date.today)
       @report = report
       @scope = scope
       @date = date
     end
 
     def title
-      "Fleet drift report #{@date.strftime('%G-W%V')}"
+      week = @date.strftime("%G-W%V")
+      return "Fleet drift report #{week}" if @scope == WHOLE_FLEET
+
+      "Fleet drift report #{week} (#{@scope})"
     end
 
     def body
