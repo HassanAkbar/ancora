@@ -33,6 +33,8 @@ module Ancora
       when "ci" then ci
       when "step" then return step
       when "approve" then return approve
+      when "policy" then return policy
+      when "notes" then return notes
       else return usage
       end
       0
@@ -269,6 +271,33 @@ module Ancora
       0
     end
 
+    def policy
+      options = { next_version: nil }
+      OptionParser.new do |o|
+        o.on("--next-version V") { |v| options[:next_version] = v }
+      end.parse!(@argv)
+      root = @argv.shift
+      return usage unless root
+
+      findings = Policy.new(File.expand_path(root),
+                            next_version: options[:next_version]).check
+      findings.each { |f| puts "#{f.rule}: #{f.message}" }
+      puts "policy: #{findings.empty? ? 'ok' : "#{findings.size} violation(s)"}"
+      findings.empty? ? 0 : 1
+    end
+
+    def notes
+      options = {}
+      OptionParser.new do |o|
+        o.on("--prs PATH") { |v| options[:prs] = v }
+        o.on("--version V") { |v| options[:version] = v }
+      end.parse!(@argv)
+      return usage unless options[:prs] && options[:version]
+
+      puts ReleaseNotes.new(JSON.parse(File.read(options[:prs]))).render(options[:version])
+      0
+    end
+
     def tag
       repo = @argv.shift
       version = @argv.shift
@@ -322,6 +351,8 @@ module Ancora
       warn "       ancora ci OWNER/REPO [BRANCH]"
       warn "       ancora step --chain chain.yml --network PATH --delta PATH [--manifest PATH]"
       warn "       ancora approve --manifest PATH"
+      warn "       ancora policy GEM_CHECKOUT [--next-version X.Y.Z]"
+      warn "       ancora notes --prs PRS.json --version X.Y.Z"
       1
     end
   end
