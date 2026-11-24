@@ -185,6 +185,18 @@ RSpec.describe Ancora::CLI do
       end
     end
 
+    it "refuses to report from a missing delta snapshot" do
+      Dir.mktmpdir do |dir|
+        network, = write_data(dir)
+        status = nil
+        expect do
+          status = described_class.run(["drift-report", "--network", network,
+                                        "--delta", File.join(dir, "nope.json")])
+        end.to output(/no such file: .*nope.json/).to_stderr
+        expect(status).to eq 1
+      end
+    end
+
     it "checks release tags only on request" do
       Dir.mktmpdir do |dir|
         network, delta, = write_data(dir)

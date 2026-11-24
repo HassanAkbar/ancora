@@ -5,7 +5,7 @@ require "spec_helper"
 RSpec.describe Ancora::DriftReport do
   let(:graph) { Ancora::Graph.from_data(FleetFixture::NETWORK, FleetFixture::DELTA) }
   let(:tags) do
-    Class.new { def tagged_version?(_repo, _version) = false }.new
+    Class.new { def tag_status(_repo, _version) = :missing }.new
   end
   let(:report) { Ancora::FleetDrift.new(graph, tags: tags).report }
   let(:doc) { described_class.new(report, date: Date.new(2026, 11, 23)) }
@@ -36,6 +36,13 @@ RSpec.describe Ancora::DriftReport do
     plain = described_class.new(Ancora::FleetDrift.new(graph).report,
                                 date: Date.new(2026, 11, 23))
     expect(plain.body).to include("without a git tag: not checked")
+  end
+
+  it "reports tag lookups GitHub did not answer as unknown, not missing" do
+    silent = Class.new { def tag_status(_repo, _version) = :unknown }.new
+    unknown = Ancora::FleetDrift.new(graph, tags: silent).report
+    plain = described_class.new(unknown, date: Date.new(2026, 11, 23))
+    expect(plain.body).to match(/without a git tag: 0 \(\d+ unknown/)
   end
 
   it "keeps the body under GitHub's limit" do

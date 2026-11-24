@@ -15,6 +15,12 @@ permissions:
   contents: read
   issues: write
 
+# one report run at a time, so a manual run cannot race the schedule into
+# a duplicate weekly issue
+concurrency:
+  group: drift-report
+  cancel-in-progress: false
+
 jobs:
   report:
     runs-on: ubuntu-latest

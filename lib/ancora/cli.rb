@@ -116,22 +116,34 @@ module Ancora
     def drift_report
       options = { delta: nil, seeds: [], chain: nil }
       parse_graph_options(options)
-      return usage unless options[:network]
+      return usage unless options[:network] && options[:delta]
 
+      missing = options.values_at(:network, :delta).reject { |f| File.file?(f) }
+      unless missing.empty?
+        warn "drift-report: no such file: #{missing.join(', ')}"
+        return 1
+      end
+
+      doc = build_drift_doc(options)
+      puts doc.body
+      options[:issue] ? file_drift_issue(doc, options[:issue]) : 0
+    end
+
+    def build_drift_doc(options)
       graph = Graph.load(options.fetch(:network), options[:delta])
       chain = load_chain(options)
       tags = options[:tags] ? Oracle::Github.new : nil
       report = FleetDrift.new(graph, chain: chain, tags: tags).report
-      doc = DriftReport.new(report, scope: chain ? "chain #{chain.name}" : "whole fleet")
-      puts doc.body
-      return 0 unless options[:issue]
+      DriftReport.new(report, scope: chain ? "chain #{chain.name}" : "whole fleet")
+    end
 
+    def file_drift_issue(doc, repo)
       token = ENV.fetch("GITHUB_TOKEN", nil) || ENV.fetch("GH_TOKEN", nil)
       unless token
         warn "drift-report --issue needs GITHUB_TOKEN or GH_TOKEN"
         return 1
       end
-      url = IssueSink.new(options[:issue], token: token)
+      url = IssueSink.new(repo, token: token)
         .publish(title: doc.title, body: doc.body, label: DriftReport::LABEL)
       warn "issue: #{url}"
       0
@@ -346,7 +358,7 @@ module Ancora
       warn "usage: ancora plan --network PATH [--delta PATH] [--chain chain.yml] [--seeds a,b]"
       warn "       ancora pin --chain chain.yml --network PATH [--delta PATH]"
       warn "       ancora drift --network PATH [--delta PATH] [--chain chain.yml]"
-      warn "       ancora drift-report --network PATH [--delta PATH] [--chain chain.yml] [--tags] [--issue OWNER/REPO]"
+      warn "       ancora drift-report --network PATH --delta PATH [--chain chain.yml] [--tags] [--issue OWNER/REPO]"
       warn "       ancora externals --chain chain.yml --network PATH [--delta PATH]"
       warn "       ancora check GEM VERSION"
       warn "       ancora tag OWNER/REPO VERSION"

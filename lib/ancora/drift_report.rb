@@ -53,9 +53,13 @@ module Ancora
     end
 
     def untagged_count
-      return "not checked" if rows.all? { |r| r.tagged.nil? }
+      return "not checked" unless @report.tags_checked
 
-      rows.count(&:untagged_release?)
+      count = rows.count(&:untagged_release?)
+      unknown = rows.count { |r| r.tagged == :unknown }
+      return count.to_s if unknown.zero?
+
+      "#{count} (#{unknown} unknown: GitHub did not answer)"
     end
 
     def floor_count
@@ -111,9 +115,10 @@ module Ancora
     end
 
     def unpublished
-      list("Floors no release satisfies", @report.unpublished_floors) do |f|
+      list("Floors the latest release does not satisfy",
+           @report.unpublished_floors) do |f|
         "`#{f.from}` -> `#{f.to}`: #{f.constraints.join(', ')} " \
-          "vs released #{f.released}"
+          "vs #{f.released ? "latest release #{f.released}" : 'no release yet'}"
       end
     end
 

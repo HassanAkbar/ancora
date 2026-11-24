@@ -8,7 +8,7 @@ module Ancora
   #   behind     main's VERSION is older than the latest release (a
   #              release cut from elsewhere; main must catch up)
   #   tagged     whether the latest release has its v<version> git tag
-  #              (nil when no tag oracle was given)
+  #              (:tagged, :missing, :unknown; nil when not checked)
   #
   # Floor violations are the Drift findings (floorless, stale pins,
   # prerelease floors) plus floors no release satisfies yet.
@@ -16,14 +16,16 @@ module Ancora
     Row = Struct.new(:gem, :repo, :main_version, :released, :ahead_by,
                      :behind, :tagged, keyword_init: true) do
       def untagged_release?
-        tagged == false
+        tagged == :missing
       end
     end
     UnpublishedFloor = Struct.new(:from, :to, :constraints, :released,
                                   keyword_init: true)
-    Report = Struct.new(:rows, :drift, :unpublished_floors, keyword_init: true)
+    Report = Struct.new(:rows, :drift, :unpublished_floors, :tags_checked,
+                        keyword_init: true)
 
-    # tags: anything answering tagged_version?(repo, version), e.g.
+    # tags: anything answering tag_status(repo, version) with :tagged,
+    # :missing or :unknown, e.g.
     # Oracle::Github; nil skips the tag check.
     def initialize(graph, chain: nil, tags: nil)
       @graph = graph
@@ -34,7 +36,8 @@ module Ancora
     def report
       drift = Drift.new(@graph, chain: @chain).report
       Report.new(rows: rows, drift: drift,
-                 unpublished_floors: unpublished_floors)
+                 unpublished_floors: unpublished_floors,
+                 tags_checked: !@tags.nil?)
     end
 
     private
@@ -64,7 +67,7 @@ module Ancora
     def tagged(node)
       return nil unless @tags && node.released
 
-      @tags.tagged_version?(node.repo, node.released)
+      @tags.tag_status(node.repo, node.released)
     end
 
     def unpublished_floors
@@ -74,8 +77,10 @@ module Ancora
     def unpublished_floor(edge)
       return unless checked?(edge)
 
-      released = @graph.nodes[edge.to]&.released
-      return if released.nil? || satisfied?(edge.constraints, released)
+      target = @graph.nodes[edge.to]
+      released = target&.released
+      return if target.nil? || (released && satisfied?(edge.constraints,
+                                                       released))
 
       UnpublishedFloor.new(**edge.to_h, released: released)
     end
