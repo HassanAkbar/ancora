@@ -27,6 +27,7 @@ module Ancora
       when "plan" then plan
       when "pin" then return pin
       when "drift" then drift
+      when "drift-report" then return drift_report
       when "externals" then return externals
       when "check" then check
       when "tag" then tag
@@ -109,6 +110,45 @@ module Ancora
           "#{u.gem}: never released (main #{u.main_version})"
         end
       end
+    end
+
+    # the weekly fleet drift report: markdown on stdout; with --issue
+    # also filed as a GitHub issue (needs GITHUB_TOKEN or GH_TOKEN);
+    # --tags adds the git-tag check (one GitHub API call per gem)
+    def drift_report
+      options = { delta: nil, seeds: [], chain: nil }
+      parse_graph_options(options)
+      return usage unless options[:network] && options[:delta]
+
+      missing = options.values_at(:network, :delta).reject { |f| File.file?(f) }
+      unless missing.empty?
+        warn "drift-report: no such file: #{missing.join(', ')}"
+        return 1
+      end
+
+      doc = build_drift_doc(options)
+      puts doc.body
+      options[:issue] ? file_drift_issue(doc, options[:issue]) : 0
+    end
+
+    def build_drift_doc(options)
+      graph = Graph.load(options.fetch(:network), options[:delta])
+      chain = load_chain(options)
+      tags = options[:tags] ? Oracle::Github.new : nil
+      report = FleetDrift.new(graph, chain: chain, tags: tags).report
+      DriftReport.new(report, scope: chain ? "chain #{chain.name}" : DriftReport::WHOLE_FLEET)
+    end
+
+    def file_drift_issue(doc, repo)
+      token = ENV.fetch("GITHUB_TOKEN", nil) || ENV.fetch("GH_TOKEN", nil)
+      unless token
+        warn "drift-report --issue needs GITHUB_TOKEN or GH_TOKEN"
+        return 1
+      end
+      url = IssueSink.new(repo, token: token)
+        .publish(title: doc.title, body: doc.body, label: DriftReport::LABEL)
+      warn "issue: #{url}"
+      0
     end
 
     # external-chain needs of a chain: floors pointing outside the
@@ -332,6 +372,8 @@ module Ancora
         o.on("--manifest PATH") { |v| options[:manifest] = v }
         o.on("--format F") { |v| options[:format] = v }
         o.on("--externals") { |v| options[:externals] = v }
+        o.on("--tags") { |v| options[:tags] = v }
+        o.on("--issue OWNER/REPO") { |v| options[:issue] = v }
       end.parse!(@argv)
     end
 
@@ -345,6 +387,7 @@ module Ancora
       warn "usage: ancora plan --network PATH [--delta PATH] [--chain chain.yml] [--seeds a,b]"
       warn "       ancora pin --chain chain.yml --network PATH [--delta PATH]"
       warn "       ancora drift --network PATH [--delta PATH] [--chain chain.yml]"
+      warn "       ancora drift-report --network PATH --delta PATH [--chain chain.yml] [--tags] [--issue OWNER/REPO]"
       warn "       ancora externals --chain chain.yml --network PATH [--delta PATH]"
       warn "       ancora check GEM VERSION"
       warn "       ancora tag OWNER/REPO VERSION"

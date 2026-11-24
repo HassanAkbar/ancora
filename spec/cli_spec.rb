@@ -191,4 +191,72 @@ RSpec.describe Ancora::CLI do
         .to output(/## 1.0.1\n\n- T \(#1\)/).to_stdout
     end
   end
+
+  describe "drift-report" do
+    it "prints the markdown report" do
+      Dir.mktmpdir do |dir|
+        network, delta, = write_data(dir)
+        out = capture_stdout do
+          expect(described_class.run(["drift-report", "--network", network, "--delta", delta])).to eq 0
+        end
+        expect(out).to include("## Summary", "`metanorma-document`", "## Stale pins (2)")
+      end
+    end
+
+    it "refuses to report from a missing delta snapshot" do
+      Dir.mktmpdir do |dir|
+        network, = write_data(dir)
+        status = nil
+        expect do
+          status = described_class.run(["drift-report", "--network", network,
+                                        "--delta", File.join(dir, "nope.json")])
+        end.to output(/no such file: .*nope.json/).to_stderr
+        expect(status).to eq 1
+      end
+    end
+
+    it "checks release tags only on request" do
+      Dir.mktmpdir do |dir|
+        network, delta, = write_data(dir)
+        stub_request(:get, %r{api.github.com/repos/.+/tags}).to_return(body: "[]")
+        out = capture_stdout do
+          described_class.run(["drift-report", "--network", network, "--delta", delta, "--tags"])
+        end
+        expect(out).to match(/latest release without a git tag: [1-9]/)
+      end
+    end
+
+    it "files the issue when --issue is given and a token exists" do
+      Dir.mktmpdir do |dir|
+        network, delta, = write_data(dir)
+        stub_request(:get, %r{api.github.com/repos/o/r/issues\?}).to_return(body: "[]")
+        create = stub_request(:post, "https://api.github.com/repos/o/r/issues")
+          .to_return(body: JSON.generate("html_url" => "https://x/1"))
+        allow(ENV).to receive(:fetch).and_call_original
+        allow(ENV).to receive(:fetch).with("GITHUB_TOKEN", nil).and_return("t")
+        capture_stdout do
+          expect do
+            described_class.run(["drift-report", "--network", network, "--delta", delta, "--issue", "o/r"])
+          end.to output(%r{issue: https://x/1}).to_stderr
+        end
+        expect(create).to have_been_requested
+      end
+    end
+
+    it "refuses --issue without a token" do
+      Dir.mktmpdir do |dir|
+        network, delta, = write_data(dir)
+        allow(ENV).to receive(:fetch).and_call_original
+        allow(ENV).to receive(:fetch).with("GITHUB_TOKEN", nil).and_return(nil)
+        allow(ENV).to receive(:fetch).with("GH_TOKEN", nil).and_return(nil)
+        status = nil
+        capture_stdout do
+          expect do
+            status = described_class.run(["drift-report", "--network", network, "--delta", delta, "--issue", "o/r"])
+          end.to output(/needs GITHUB_TOKEN/).to_stderr
+        end
+        expect(status).to eq 1
+      end
+    end
+  end
 end

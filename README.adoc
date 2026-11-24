@@ -87,6 +87,21 @@ checks a chain's floors that point outside its inventory against the rubygems
 oracle: nothing promotes against another chain's prerelease, so a need only a
 prerelease satisfies is the cross-chain release-request case.
 
+== Weekly drift report
+
+`drift-report` turns the same collector data into a per-gem report: commits
+ahead of the latest release, gems whose main VERSION is behind their release,
+latest releases with no `v<version>` git tag (`--tags`, one GitHub API call per
+gem), and the floor violations (floorless edges, stale pins, prerelease floors,
+floors no release satisfies yet). It prints markdown; `--issue OWNER/REPO` also
+files it as one issue per ISO week (a rerun in the same week updates it).
+`.github/workflows/drift-report.yml` runs it every Monday; it reads the
+snapshot from the repository named by the `ANCORA_DATA_REPO` variable.
+
+----
+bundle exec exe/ancora drift-report --network network.json --delta delta.json --tags
+----
+
 == The step-per-run state machine
 
 Waves exceed any single workflow-run time limit, so the runtime performs ONE
