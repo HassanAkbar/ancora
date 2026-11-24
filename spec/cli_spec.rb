@@ -259,4 +259,30 @@ RSpec.describe Ancora::CLI do
       end
     end
   end
+
+  describe "plan --semantic" do
+    def capture
+      out = StringIO.new
+      original = $stdout
+      $stdout = out
+      yield
+      out.string
+    ensure
+      $stdout = original
+    end
+
+    it "plan --semantic prints fewer waves and the floorless remainder" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "n.json"), JSON.generate(FleetFixture::NETWORK))
+        File.write(File.join(dir, "d.json"), JSON.generate(FleetFixture::DELTA))
+        args = ["plan", "--network", File.join(dir, "n.json"), "--delta",
+                File.join(dir, "d.json")]
+        plain = capture { described_class.run(args.dup) }
+        semantic = capture { described_class.run(args + ["--semantic"]) }
+        expect(semantic).to include("floorless edges still ordering the plan")
+        expect(plain).not_to include("still ordering")
+        expect(semantic.scan(/^wave /).size).to be <= plain.scan(/^wave /).size
+      end
+    end
+  end
 end

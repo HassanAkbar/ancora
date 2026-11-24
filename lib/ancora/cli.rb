@@ -44,14 +44,15 @@ module Ancora
     private
 
     def plan
-      options = { delta: nil, seeds: [], chain: nil }
+      options = { delta: nil, seeds: [], chain: nil, semantic: false }
       parse_graph_options(options)
 
       graph = Graph.load(options.fetch(:network), options[:delta])
       chain = load_chain(options)
       scope = options[:seeds].empty? ? :full : :scoped
-      waves = Planner.new(graph, chain: chain).plan(scope: scope,
-                                                    seeds: options[:seeds])
+      planner = Planner.new(graph, chain: chain)
+      waves = planner.plan(scope: scope, seeds: options[:seeds],
+                           semantic: options[:semantic])
       if chain
         terminus = chain.terminus(graph)
         label = terminus ? terminus.join(", ") : "none (fan chain)"
@@ -60,6 +61,12 @@ module Ancora
       puts "scope: #{scope} (#{waves.flatten.size} gems, #{waves.size} waves)"
       waves.each_with_index do |wave, i|
         puts "wave #{i + 1}: #{wave.join(', ')}"
+      end
+      return unless options[:semantic]
+
+      section(planner.floorless_binding(waves.flatten),
+              "floorless edges still ordering the plan") do |e|
+        "#{e.from} -> #{e.to}"
       end
     end
 
@@ -374,6 +381,7 @@ module Ancora
         o.on("--externals") { |v| options[:externals] = v }
         o.on("--tags") { |v| options[:tags] = v }
         o.on("--issue OWNER/REPO") { |v| options[:issue] = v }
+        o.on("--semantic") { |v| options[:semantic] = v }
       end.parse!(@argv)
     end
 
@@ -384,7 +392,7 @@ module Ancora
     end
 
     def usage
-      warn "usage: ancora plan --network PATH [--delta PATH] [--chain chain.yml] [--seeds a,b]"
+      warn "usage: ancora plan --network PATH [--delta PATH] [--chain chain.yml] [--seeds a,b] [--semantic]"
       warn "       ancora pin --chain chain.yml --network PATH [--delta PATH]"
       warn "       ancora drift --network PATH [--delta PATH] [--chain chain.yml]"
       warn "       ancora drift-report --network PATH --delta PATH [--chain chain.yml] [--tags] [--issue OWNER/REPO]"
