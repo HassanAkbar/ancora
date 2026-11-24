@@ -9,7 +9,8 @@ module Ancora
   #   2. compile - `bundle lock` then `bundle install` against that lock:
   #                conflicting floors or a missing candidate fail here
   #   3. suites  - chain.yml gate commands in each gem's main checkout,
-  #                using the GateLock Gemfile for the candidate set
+  #                bundled from the gem's own Gemfile with the candidate
+  #                set forced on top (GateLock#suite_gemfile)
   #   4. canary  - chain.yml canary commands, run once per configured
   #                corpus checkout (documents in ANCORA_CORPUS_DOCUMENTS,
   #                the corpus budget as the timeout), or once in the lock
@@ -43,6 +44,7 @@ module Ancora
       .to_h { |name| [name, nil] }.freeze
 
     DETAIL_LINES = 12
+    SUITE_GEMFILE = "Gemfile.ancora"
 
     def initialize(chain:, graph:, workdir:, shell: Shell.new, token: nil,
                    clone_url: nil)
@@ -61,7 +63,7 @@ module Ancora
       return verdict([blocked]) if blocked
 
       steps = compile(pins, externals)
-      steps.concat(suites(recipe)) if all_ok?(steps)
+      steps.concat(suites(recipe, pins, externals)) if all_ok?(steps)
       steps.concat(canary(recipe)) if all_ok?(steps)
       verdict(steps)
     end
@@ -112,21 +114,41 @@ module Ancora
       step(name, kind, @shell.run(argv, chdir: lock_dir, env: bundle_env))
     end
 
-    def suites(recipe)
-      recipe.suites.flat_map { |suite| gem_suite(suite) }
+    def suites(recipe, pins, externals)
+      lock = GateLock.new(@chain, @graph, externals: externals)
+      recipe.suites.flat_map { |suite| gem_suite(suite, lock, pins) }
     end
 
-    def gem_suite(suite)
+    # the suite's own Gemfile keeps its test dependencies in the bundle;
+    # the overlay forces the candidate set onto it (see GateLock)
+    def gem_suite(suite, lock, pins)
       dir = File.join(@workdir, "suites", suite.gem)
       cloned = clone(suite.repo, dir, ref: "main", kind: "suite",
                                       gems: [suite.gem])
       return [cloned] unless cloned.status == "ok"
 
-      [cloned] + suite.commands.map do |command|
-        result = @shell.run(command, chdir: dir, env: bundle_env)
-        step("suite #{suite.gem}: #{command}", "suite", result,
-             gems: [suite.gem])
-      end
+      env = write_overlay(dir, lock.suite_gemfile(pins, own: suite.gem))
+      run_suite(suite, dir, env)
+    end
+
+    def run_suite(suite, dir, env)
+      installed = suite_step(suite, dir, env, %w[bundle install])
+      return [installed] unless installed.status == "ok"
+
+      [installed] + suite.commands.map { |c| suite_step(suite, dir, env, c) }
+    end
+
+    def write_overlay(dir, gemfile)
+      env = suite_env(dir)
+      FileUtils.mkdir_p(dir)
+      File.write(env["BUNDLE_GEMFILE"], gemfile)
+      env
+    end
+
+    def suite_step(suite, dir, env, command)
+      result = @shell.run(command, chdir: dir, env: env)
+      label = command.is_a?(Array) ? command.join(" ") : command
+      step("suite #{suite.gem}: #{label}", "suite", result, gems: [suite.gem])
     end
 
     def canary(recipe)
@@ -199,6 +221,10 @@ module Ancora
 
     def bundle_env
       SCRUBBED_ENV.merge("BUNDLE_GEMFILE" => File.join(lock_dir, "Gemfile"))
+    end
+
+    def suite_env(dir)
+      SCRUBBED_ENV.merge("BUNDLE_GEMFILE" => File.join(dir, SUITE_GEMFILE))
     end
 
     # the token travels in the environment, never in argv or the URL

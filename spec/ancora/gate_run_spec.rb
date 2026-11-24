@@ -42,22 +42,21 @@ RSpec.describe Ancora::GateRun do
     end
   end
 
-  it "runs every gem suite on main against the candidate lock before canary" do
+  it "runs every gem suite on main against its overlay before canary" do
     Dir.mktmpdir do |dir|
       shell = RecordingShell.new
       verdict = run_gate(shell, dir, token: "token-123")
       suites = shell.calls.select { |c| c[:command] == "bundle exec rspec" }
 
       expect(verdict).to be_green
-      expect(suites.map { |c| c[:chdir] }).to eq(
+      expect(suites.map { |c| [c[:chdir], c[:env]] }).to eq(
         %w[metanorma-cli metanorma-iso].map do |gem|
-          File.join(dir, "suites", gem)
+          gem_dir = File.join(dir, "suites", gem)
+          [gem_dir, described_class::SCRUBBED_ENV.merge(
+            "BUNDLE_GEMFILE" => File.join(gem_dir, "Gemfile.ancora"),
+          )]
         end,
       )
-      expected_env = described_class::SCRUBBED_ENV.merge(
-        "BUNDLE_GEMFILE" => File.join(dir, "lock", "Gemfile"),
-      )
-      expect(suites.map { |c| c[:env] }).to all(eq(expected_env))
       expect(shell.commands[2]).to eq(
         "git clone --depth 1 --branch main " \
         "https://github.com/metanorma/metanorma-cli.git " \
@@ -65,6 +64,24 @@ RSpec.describe Ancora::GateRun do
       )
       expect(verdict.steps.map(&:kind)).to eq(
         %w[compile compile suite suite suite suite corpus corpus corpus],
+      )
+    end
+  end
+
+  it "bundles each suite with the other candidates pinned, not its own gem" do
+    Dir.mktmpdir do |dir|
+      shell = RecordingShell.new
+      run_gate(shell, dir)
+      overlay = File.read(File.join(dir, "suites", "metanorma-cli",
+                                    "Gemfile.ancora"))
+      installs = shell.calls.select { |c| c[:command] == "bundle install" }
+
+      expect(overlay).to include('"metanorma-iso" => "3.5.1.pre.alpha.1"')
+      expect(overlay).not_to include('"metanorma-cli" =>')
+      expect(installs.map { |c| c[:chdir] }).to eq(
+        [File.join(dir, "lock")] + %w[metanorma-cli metanorma-iso].map do |gem|
+          File.join(dir, "suites", gem)
+        end,
       )
     end
   end
@@ -122,7 +139,8 @@ RSpec.describe Ancora::GateRun do
           call[:chdir] == File.join(dir, "suites", gem)
         end
         expect(commands.map { |call| call[:command] })
-          .to eq ["bundle exec rspec", "bundle exec rake spec"]
+          .to eq ["bundle install", "bundle exec rspec",
+                  "bundle exec rake spec"]
       end
     end
   end
