@@ -62,6 +62,14 @@ RSpec.describe Ancora::Planner do
   end
 
   describe "semantic planning" do
+    def scoped_chain_waves(seed, semantic:)
+      chain = FleetFixture.load_chain(FleetFixture::METANORMA_CHAIN)
+      fleet = Ancora::Graph.from_data(FleetFixture::NETWORK,
+                                      FleetFixture::DELTA)
+      described_class.new(fleet, chain: chain)
+        .plan(scope: :scoped, seeds: [seed], semantic: semantic)
+    end
+
     # A ten-deep line g0 <- g1 <- ... <- g9 (gN depends on g(N-1)), every
     # gem ahead of its release. Structural planning needs ten waves. Only
     # two edges really force an order: g1 -> g0 has no floor, and g2 -> g1
@@ -86,6 +94,37 @@ RSpec.describe Ancora::Planner do
                              "released" => "1.0.0", "ahead_by" => 3 }
       end
       Ancora::Graph.from_data(network, delta)
+    end
+
+    it "keeps the terminus alone in the last wave when satisfied edges drop" do
+      waves = scoped_chain_waves("ea", semantic: true)
+      expect(waves.last).to eq(["metanorma-cli"])
+      expect(waves.flatten).to match_array(
+        scoped_chain_waves("ea", semantic: false).flatten,
+      )
+    end
+
+    it "does not report a floorless edge inside one release unit" do
+      network = {
+        "r/mono" => { "name" => "a", "main_version" => "1.0.0",
+                      "deps" => [{ "name" => "b", "constraints" => [] }] },
+        "r/b" => { "name" => "b", "main_version" => "1.0.0", "deps" => [] },
+      }
+      delta = {
+        "r/mono" => { "gem" => "a", "released" => "0.9.0", "ahead_by" => 1 },
+        "r/b" => { "gem" => "b", "released" => "0.9.0", "ahead_by" => 1 },
+      }
+      graph = Ancora::Graph.from_data(network, delta)
+      chain = FleetFixture.load_chain(<<~YAML)
+        name: mono
+        inventory:
+          gems: [a, b]
+        monorepos:
+          r/mono: [a, b]
+      YAML
+      planner = described_class.new(graph, chain: chain)
+      planner.plan(semantic: true)
+      expect(planner.floorless_binding(%w[a b])).to be_empty
     end
 
     it "needs ten structural waves for the line" do

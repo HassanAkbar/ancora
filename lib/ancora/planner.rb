@@ -42,7 +42,8 @@ module Ancora
     # the depth semantic planning cannot remove until a floor is pinned.
     def floorless_binding(gems)
       @graph.floorless_edges.select do |e|
-        gems.include?(e.from) && gems.include?(e.to) && binding_edge?(e)
+        gems.include?(e.from) && gems.include?(e.to) &&
+          binding_edge?(e) && !same_unit?(e)
       end
     end
 
@@ -53,6 +54,16 @@ module Ancora
 
       @graph.edges.select { |e| e.from == gem && binding_edge?(e) }
         .map(&:to).uniq
+    end
+
+    # a monorepo's gems always share a wave: an edge inside one unit
+    # orders nothing
+    def same_unit?(edge)
+      return false unless @chain
+
+      @chain.units(@graph).any? do |u|
+        u.gems.include?(edge.from) && u.gems.include?(edge.to)
+      end
     end
 
     def binding_edge?(edge)
@@ -101,6 +112,7 @@ module Ancora
             end
           end
         end
+        ready = hold_terminus(ready, remaining)
         break if ready.empty? # cycle: emit the remainder as one wave
 
         levels << ready.flat_map(&:gems).sort
@@ -108,6 +120,17 @@ module Ancora
       end
       levels << remaining.flat_map(&:gems).sort unless remaining.empty?
       levels
+    end
+
+    # The terminus pins the whole chain, so semantic planning, which
+    # drops satisfied edges, still places it alone after every other
+    # unit.
+    def hold_terminus(ready, remaining)
+      return ready unless @semantic && @chain.terminus(@graph)
+
+      terminus = @chain.terminus(@graph)
+      last, rest = ready.partition { |u| (u.gems & terminus).any? }
+      last.empty? || (remaining - last).empty? ? ready : rest
     end
 
     def assert_terminus(waves)
