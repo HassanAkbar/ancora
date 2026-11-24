@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "cgi"
+require "date"
 require "fileutils"
 require "json"
 require "net/http"
@@ -20,9 +21,12 @@ module Ancora
   autoload :Oracle, "ancora/oracle"
   autoload :Candidate, "ancora/candidate"
   autoload :Drift, "ancora/drift"
+  autoload :DriftReport, "ancora/drift_report"
   autoload :Externals, "ancora/externals"
+  autoload :FleetDrift, "ancora/fleet_drift"
   autoload :GateLock, "ancora/gate_lock"
   autoload :GateRecipe, "ancora/gate_recipe"
+  autoload :IssueSink, "ancora/issue_sink"
   autoload :Machine, "ancora/machine"
   autoload :Manifest, "ancora/manifest"
   autoload :CLI, "ancora/cli"
