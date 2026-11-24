@@ -67,6 +67,7 @@ is the gem), lutaml (whole-org fan, no terminus).
 ----
 bundle exec exe/ancora plan --network network.json --delta delta.json
 bundle exec exe/ancora plan --network network.json --seeds metanorma-standoc
+bundle exec exe/ancora plan --network network.json --delta delta.json --semantic
 bundle exec exe/ancora plan --network network.json --chain examples/metanorma.chain.yml
 bundle exec exe/ancora pin --chain examples/metanorma.chain.yml --network network.json --delta delta.json
 bundle exec exe/ancora drift --network network.json --delta delta.json

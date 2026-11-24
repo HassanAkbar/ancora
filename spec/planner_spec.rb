@@ -60,4 +60,94 @@ RSpec.describe Ancora::Planner do
   it "flags floorless edges" do
     expect(graph.floorless_edges.map(&:to)).to eq(["lutaml-model"])
   end
+
+  describe "semantic planning" do
+    # A ten-deep line g0 <- g1 <- ... <- g9 (gN depends on g(N-1)), every
+    # gem ahead of its release. Structural planning needs ten waves. Only
+    # two edges really force an order: g1 -> g0 has no floor, and g2 -> g1
+    # floors a version not yet released. The rest carry floors the
+    # released dependency already satisfies.
+    let(:graph) do
+      network = {}
+      delta = {}
+      10.times do |i|
+        deps = if i.zero?
+                 []
+               elsif i == 1
+                 [{ "name" => "g0", "constraints" => [] }]
+               elsif i == 2
+                 [{ "name" => "g1", "constraints" => [">= 1.1.0"] }]
+               else
+                 [{ "name" => "g#{i - 1}", "constraints" => [">= 1.0.0"] }]
+               end
+        network["o/g#{i}"] = { "name" => "g#{i}", "main_version" => "1.1.0",
+                               "deps" => deps }
+        delta["o/g#{i}"] = { "gem" => "g#{i}", "main_version" => "1.1.0",
+                             "released" => "1.0.0", "ahead_by" => 3 }
+      end
+      Ancora::Graph.from_data(network, delta)
+    end
+
+    it "needs ten structural waves for the line" do
+      expect(described_class.new(graph).plan.size).to eq(10)
+    end
+
+    it "cuts the line to three waves when only binding edges order it" do
+      waves = described_class.new(graph).plan(semantic: true)
+      expect(waves).to eq([
+                            %w[g0 g3 g4 g5 g6 g7 g8 g9],
+                            %w[g1],
+                            %w[g2],
+                          ])
+    end
+
+    it "keeps every drifted gem in the plan" do
+      structural = described_class.new(graph).plan.flatten
+      semantic = described_class.new(graph).plan(semantic: true).flatten
+      expect(semantic).to match_array(structural)
+    end
+
+    it "reports the floorless edges that still order the plan" do
+      planner = described_class.new(graph)
+      gems = planner.plan(semantic: true).flatten
+      expect(planner.floorless_binding(gems).map { |e| [e.from, e.to] })
+        .to eq([%w[g1 g0]])
+    end
+
+    it "treats a floor the released dependency does not satisfy as ordering" do
+      waves = described_class.new(graph).plan(semantic: true)
+      expect(waves.index { |w| w.include?("g1") })
+        .to be < waves.index { |w| w.include?("g2") }
+    end
+
+    it "treats an unreleased dependency as ordering" do
+      network = {
+        "o/a" => { "name" => "a", "main_version" => "0.1.0",
+                   "deps" => [{ "name" => "b", "constraints" => [">= 0.1"] }] },
+        "o/b" => { "name" => "b", "main_version" => "0.1.0", "deps" => [] },
+      }
+      delta = {
+        "o/a" => { "gem" => "a", "released" => nil, "ahead_by" => 1 },
+        "o/b" => { "gem" => "b", "released" => nil, "ahead_by" => 1 },
+      }
+      g = Ancora::Graph.from_data(network, delta)
+      expect(described_class.new(g).plan(semantic: true)).to eq([["b"], ["a"]])
+    end
+
+    it "leaves the default plan unchanged" do
+      planner = described_class.new(graph)
+      planner.plan(semantic: true)
+      expect(planner.plan.size).to eq(10)
+    end
+
+    it "keeps release units whole and the terminus last in chain mode" do
+      chain = FleetFixture.load_chain(FleetFixture::METANORMA_CHAIN)
+      fleet = Ancora::Graph.from_data(FleetFixture::NETWORK, FleetFixture::DELTA)
+      structural = described_class.new(fleet, chain: chain).plan
+      semantic = described_class.new(fleet, chain: chain).plan(semantic: true)
+      expect(semantic.flatten).to match_array(structural.flatten)
+      expect(semantic.size).to be <= structural.size
+      expect(semantic.flatten).to include("metanorma-standoc")
+    end
+  end
 end
