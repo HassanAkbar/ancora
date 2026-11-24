@@ -125,10 +125,10 @@ gem covers only 7/30 org gems; ea/xmi/oscal feed the metanorma chain instead).
       runner dispatching one workflow per corpus + polling via the CI oracle
       (bin/run-action gate branch documents the contract).
 - [x] GATE RUNNER, engine side (`ancora gate`, `GateRun`): GateLock full-set
-      compile + canary commands per configured corpus, verdict recorded with
-      `--record`, suspects named from the failing corpora. Subprocesses go
-      through the injectable `Shell`. Remaining: suite runs per gated gem in a
-      disposable container, and wiring `bin/run-action gate` to call it.
+      compile + suites per gated gem + canary commands per configured corpus,
+      verdict recorded with `--record`, suspects named from failing suites and
+      corpora. Subprocesses go through the injectable `Shell`.
+      Remaining: wiring `bin/run-action gate` to call it.
 - [x] Floor-pin fixer (`ancora floors`, `FloorFixer`/`FloorApplier`): floorless,
       prerelease and stale floors raised to the released final in the gemspec.
       Remaining: opening the fix PRs per repo (runtime side).

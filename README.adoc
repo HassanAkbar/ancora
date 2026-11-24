@@ -114,12 +114,17 @@ remain.
 
 `ancora gate` runs the gate for the manifest's open attempt: it writes the
 GateLock Gemfile pinning the entire candidate set, compiles it (`bundle lock`,
-`bundle install`), then runs the chain's `canary.commands` once in each
+`bundle install`), then clones each recipe gem's repo at `main` and runs every
+`gate.commands` command in that checkout. Suite commands use `BUNDLE_GEMFILE`
+pointing at the GateLock Gemfile to resolve the candidate set. Only when all
+suites pass does it run the chain's `canary.commands` once in each
 configured corpus checkout (`documents` in `ANCORA_CORPUS_DOCUMENTS`, the
 corpus `budget` as the timeout). Green only when every step passes; a red
-corpus names the gems it gates as suspects. `--record` writes the verdict to
-the manifest; private corpora clone with `GITHUB_TOKEN`/`GH_TOKEN`. A canary
-command that would publish (`gem push`, `rubygems-release`, ...) is refused.
+suite names its gem as suspect, and a red corpus names the gems it gates.
+`--record` writes the verdict to the manifest; private repos clone with
+`GITHUB_TOKEN`/`GH_TOKEN`. Tokens are passed only to git; suite and canary
+commands have publishing credentials scrubbed. A suite or canary command that
+would publish (`gem push`, `rubygems-release`, ...) is refused.
 
 == The step-per-run state machine
 

@@ -1,20 +1,23 @@
 # frozen_string_literal: true
 
 module Ancora
-  # Runs a gate recipe: the GateLock full-set compile and the canary
+  # Runs a gate recipe: the GateLock full-set compile, gem suites and canary
   # corpus gate. It never publishes; every subprocess goes through the
   # injected shell, so specs and dry runs stay offline.
   #
   #   1. lock    - write the Gemfile pinning the ENTIRE candidate set
   #   2. compile - `bundle lock` then `bundle install` against that lock:
   #                conflicting floors or a missing candidate fail here
-  #   3. canary  - chain.yml canary commands, run once per configured
+  #   3. suites  - chain.yml gate commands in each gem's main checkout,
+  #                using the GateLock Gemfile for the candidate set
+  #   4. canary  - chain.yml canary commands, run once per configured
   #                corpus checkout (documents in ANCORA_CORPUS_DOCUMENTS,
   #                the corpus budget as the timeout), or once in the lock
   #                directory when the chain configures no corpus
   #
   # The verdict is green only when every step passed. A failed compile
-  # skips the canary stage. A red corpus names the gems it gates, as the
+  # skips suites and canary; a failed suite skips canary and names its gem
+  # as suspect. A red corpus names the gems it gates, as the
   # suspects of the next attempt. The engine enforces only the configured
   # corpora; it never infers coverage.
   class GateRun
@@ -28,14 +31,14 @@ module Ancora
 
     class Refused < StandardError; end
 
-    # a canary command that would publish is a config error, never run
+    # a suite or canary command that would publish is a config error, never run
     PUBLISHING = Regexp.union(
       /\bgem\b.*\bpush\b/, /rubygems-release/,
       /\bgh\b.*\b(?:release|workflow)\b/, /\bgit\b.*\b(?:push|tag)\b/,
       /\brake\b.*\brelease\b/
     )
 
-    # canary commands never see publishing credentials (nil unsets)
+    # suite and canary commands never see publishing credentials (nil unsets)
     SCRUBBED_ENV = %w[GEM_HOST_API_KEY RUBYGEMS_API_KEY GITHUB_TOKEN GH_TOKEN]
       .to_h { |name| [name, nil] }.freeze
 
@@ -53,22 +56,32 @@ module Ancora
 
     def call(pins, externals: [])
       recipe = GateRecipe.new(@chain, @graph).build(pins)
-      refuse_publishing!(recipe.canary)
+      validate_commands!(recipe)
       blocked = awaiting_step(externals)
       return verdict([blocked]) if blocked
 
       steps = compile(pins, externals)
-      steps.concat(canary(recipe)) if steps.all? { |s| s.status == "ok" }
+      steps.concat(suites(recipe)) if all_ok?(steps)
+      steps.concat(canary(recipe)) if all_ok?(steps)
       verdict(steps)
     end
 
     private
 
-    def refuse_publishing!(commands)
+    def all_ok?(steps)
+      steps.all? { |s| s.status == "ok" }
+    end
+
+    def validate_commands!(recipe)
+      refuse_publishing!(recipe.canary, "canary")
+      recipe.suites.each { |suite| refuse_publishing!(suite.commands, "suite") }
+    end
+
+    def refuse_publishing!(commands, kind)
       bad = commands.grep(PUBLISHING)
       return if bad.empty?
 
-      raise Refused, "canary command would publish: #{bad.join('; ')}"
+      raise Refused, "#{kind} command would publish: #{bad.join('; ')}"
     end
 
     # the lock cannot be completed while an external need has no final:
@@ -99,6 +112,23 @@ module Ancora
       step(name, kind, @shell.run(argv, chdir: lock_dir, env: bundle_env))
     end
 
+    def suites(recipe)
+      recipe.suites.flat_map { |suite| gem_suite(suite) }
+    end
+
+    def gem_suite(suite)
+      dir = File.join(@workdir, "suites", suite.gem)
+      cloned = clone(suite.repo, dir, ref: "main", kind: "suite",
+                                      gems: [suite.gem])
+      return [cloned] unless cloned.status == "ok"
+
+      [cloned] + suite.commands.map do |command|
+        result = @shell.run(command, chdir: dir, env: bundle_env)
+        step("suite #{suite.gem}: #{command}", "suite", result,
+             gems: [suite.gem])
+      end
+    end
+
     def canary(recipe)
       return lock_dir_canary(recipe) if recipe.corpora.empty?
 
@@ -114,7 +144,8 @@ module Ancora
 
     def corpus_canary(corpus, commands)
       dir = File.join(@workdir, "corpora", corpus.repo.gsub("/", "__"))
-      cloned = clone(corpus, dir)
+      cloned = clone(corpus.repo, dir, ref: corpus.ref, kind: "corpus",
+                                       gems: corpus.gems)
       return [cloned] unless cloned.status == "ok"
 
       commands.map { |command| corpus_step(corpus, dir, command) }
@@ -129,14 +160,13 @@ module Ancora
            gems: corpus.gems)
     end
 
-    def clone(corpus, dir)
+    def clone(repo, dir, ref:, kind:, gems:)
       FileUtils.rm_rf(dir)
       FileUtils.mkdir_p(File.dirname(dir))
-      argv = ["git", "clone", "--depth", "1", "--branch", corpus.ref,
-              @clone_url.call(corpus.repo), dir]
+      argv = ["git", "clone", "--depth", "1", "--branch", ref,
+              @clone_url.call(repo), dir]
       result = @shell.run(argv, chdir: @workdir, env: git_env)
-      step("clone #{corpus.repo}@#{corpus.ref}", "corpus", result,
-           gems: corpus.gems)
+      step("clone #{repo}@#{ref}", kind, result, gems: gems)
     end
 
     def verdict(steps)

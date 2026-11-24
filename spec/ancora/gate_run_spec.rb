@@ -42,6 +42,105 @@ RSpec.describe Ancora::GateRun do
     end
   end
 
+  it "runs every gem suite on main against the candidate lock before canary" do
+    Dir.mktmpdir do |dir|
+      shell = RecordingShell.new
+      verdict = run_gate(shell, dir, token: "token-123")
+      suites = shell.calls.select { |c| c[:command] == "bundle exec rspec" }
+
+      expect(verdict).to be_green
+      expect(suites.map { |c| c[:chdir] }).to eq(
+        %w[metanorma-cli metanorma-iso].map do |gem|
+          File.join(dir, "suites", gem)
+        end,
+      )
+      expected_env = described_class::SCRUBBED_ENV.merge(
+        "BUNDLE_GEMFILE" => File.join(dir, "lock", "Gemfile"),
+      )
+      expect(suites.map { |c| c[:env] }).to all(eq(expected_env))
+      expect(shell.commands[2]).to eq(
+        "git clone --depth 1 --branch main " \
+        "https://github.com/metanorma/metanorma-cli.git " \
+        "#{dir}/suites/metanorma-cli",
+      )
+      expect(verdict.steps.map(&:kind)).to eq(
+        %w[compile compile suite suite suite suite corpus corpus corpus],
+      )
+    end
+  end
+
+  it "is red when a gem suite fails, naming its gem and skipping canary" do
+    Dir.mktmpdir do |dir|
+      shell = RecordingShell.new(fail_on: ["metanorma-iso bundle exec rspec"])
+      verdict = run_gate(shell, dir)
+
+      expect(verdict.result).to eq "red"
+      expect(verdict.suspects).to eq ["metanorma-iso"]
+      expect(verdict.steps.last).to have_attributes(
+        name: "suite metanorma-iso: bundle exec rspec", kind: "suite",
+        status: "failed", gems: ["metanorma-iso"]
+      )
+      expect(shell.commands.grep(/rake site|mn-samples/)).to be_empty
+    end
+  end
+
+  it "refuses a publishing suite command before running anything" do
+    Dir.mktmpdir do |dir|
+      chain = FleetFixture.load_chain(<<~YAML)
+        name: metanorma
+        inventory:
+          orgs: [metanorma]
+          roots: [metanorma-cli]
+        gate:
+          commands: [bundle exec rake release]
+      YAML
+      shell = RecordingShell.new
+
+      expect do
+        described_class.new(chain: chain, graph: graph, workdir: dir,
+                            shell: shell).call(pins)
+      end.to raise_error(described_class::Refused,
+                         /suite command would publish/)
+      expect(shell.calls).to be_empty
+    end
+  end
+
+  it "runs every configured suite command in each gem checkout" do
+    Dir.mktmpdir do |dir|
+      yaml = FleetFixture::METANORMA_CHAIN.sub(
+        "commands: [bundle exec rspec]",
+        "commands: [bundle exec rspec, bundle exec rake spec]",
+      )
+      chain = FleetFixture.load_chain(yaml)
+      shell = RecordingShell.new
+      verdict = described_class.new(chain: chain, graph: graph, workdir: dir,
+                                    shell: shell).call(pins)
+
+      expect(verdict).to be_green
+      pins.each_key do |gem|
+        commands = shell.calls.select do |call|
+          call[:chdir] == File.join(dir, "suites", gem)
+        end
+        expect(commands.map { |call| call[:command] })
+          .to eq ["bundle exec rspec", "bundle exec rake spec"]
+      end
+    end
+  end
+
+  it "names an unclonable suite's gem and still checks the other gem" do
+    Dir.mktmpdir do |dir|
+      shell = RecordingShell.new(fail_on: ["metanorma/metanorma-cli.git"])
+      verdict = run_gate(shell, dir)
+      suites = shell.calls.select { |c| c[:command] == "bundle exec rspec" }
+
+      expect(verdict.result).to eq "red"
+      expect(verdict.suspects).to eq ["metanorma-cli"]
+      expect(suites.map { |c| File.basename(c[:chdir]) })
+        .to eq ["metanorma-iso"]
+      expect(shell.commands.grep(/rake site|mn-samples/)).to be_empty
+    end
+  end
+
   it "is red, and skips the canary, when the full set does not compile" do
     Dir.mktmpdir do |dir|
       shell = RecordingShell.new(fail_on: ["bundle lock"])
@@ -76,7 +175,7 @@ RSpec.describe Ancora::GateRun do
 
   it "is red when a configured corpus cannot be cloned" do
     Dir.mktmpdir do |dir|
-      shell = RecordingShell.new(fail_on: ["git clone"])
+      shell = RecordingShell.new(fail_on: ["https://github.com/metanorma/mn-samples"])
       verdict = run_gate(shell, dir)
 
       expect(verdict.result).to eq "red"
