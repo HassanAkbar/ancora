@@ -104,6 +104,28 @@ RSpec.describe Ancora::Planner do
       )
     end
 
+    it "still rejects a terminus split over dependent units" do
+      network = {
+        "r/a" => { "name" => "a", "main_version" => "1.0.0",
+                   "deps" => [{ "name" => "b", "constraints" => [] }] },
+        "r/b" => { "name" => "b", "main_version" => "1.0.0", "deps" => [] },
+        "r/c" => { "name" => "c", "main_version" => "1.0.0", "deps" => [] },
+      }
+      delta = %w[a b c].to_h do |g|
+        ["r/#{g}", { "gem" => g, "released" => "0.9.0", "ahead_by" => 1 }]
+      end
+      chain = FleetFixture.load_chain(<<~YAML)
+        name: split
+        inventory:
+          gems: [a, b, c]
+        terminus: [a, b]
+      YAML
+      planner = described_class.new(Ancora::Graph.from_data(network, delta),
+                                    chain: chain)
+      expect { planner.plan(semantic: true) }
+        .to raise_error(/terminus .* must be alone/)
+    end
+
     it "does not report a floorless edge inside one release unit" do
       network = {
         "r/mono" => { "name" => "a", "main_version" => "1.0.0",

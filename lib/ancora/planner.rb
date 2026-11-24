@@ -130,7 +130,8 @@ module Ancora
 
       terminus = @chain.terminus(@graph)
       last, rest = ready.partition { |u| (u.gems & terminus).any? }
-      last.empty? || (remaining - last).empty? ? ready : rest
+      others = remaining.reject { |u| (u.gems & terminus).any? }
+      last.empty? || others.empty? ? ready : rest
     end
 
     def assert_terminus(waves)
