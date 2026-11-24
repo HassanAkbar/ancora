@@ -173,4 +173,22 @@ RSpec.describe Ancora::CLI do
       .to output(/usage: ancora plan/).to_stderr
     expect(code).to eq 1
   end
+
+  it "exits non-zero and names the violated rule for a bad checkout" do
+    Dir.mktmpdir do |root|
+      code = nil
+      expect { code = described_class.run(["policy", root]) }
+        .to output(/release_workflow: missing.*lockfile_uncommitted.*2 violation/m).to_stdout
+      expect(code).to eq(1)
+    end
+  end
+
+  it "renders release notes from a PR file" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "prs.json")
+      File.write(path, JSON.generate([{ "number" => 1, "title" => "T", "mergedAt" => "2026-11-01T00:00:00Z" }]))
+      expect { described_class.run(["notes", "--prs", path, "--version", "1.0.1"]) }
+        .to output(/## 1.0.1\n\n- T \(#1\)/).to_stdout
+    end
+  end
 end
