@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "ripper"
+
 module Ancora
   # The owner's standing release rules as machine checks over one gem
   # checkout. Read-only: it inspects files and `git ls-files`, nothing is
@@ -16,7 +18,6 @@ module Ancora
   class Policy
     REUSABLE_RELEASE =
       %r{\Ametanorma/ci/\.github/workflows/rubygems-release\.yml@\S+\z}
-    VERSION_LINE = /\A\s*VERSION\s*=\s*["']([^"']+)["']/
     Finding = Struct.new(:rule, :message, keyword_init: true)
 
     RULES = %i[version_behind_next release_workflow lockfile_uncommitted].freeze
@@ -98,16 +99,44 @@ module Ancora
       status.success?
     end
 
-    # First real `VERSION = "x"` assignment; comment lines are skipped and
+    # First `VERSION = "x"` constant assignment (bare or qualified) found by
+    # parsing with Ripper; comments and =begin blocks never reach the tree and
     # no repo code is executed.
     def version_literal(text)
-      text.each_line do |line|
-        next if line.lstrip.start_with?("#")
+      tree = Ripper.sexp(text)
+      tree && find_version(tree)
+    end
 
-        match = VERSION_LINE.match(line)
-        return match[1] if match
+    def find_version(node)
+      return unless node.is_a?(Array)
+
+      own = assigned_version(node)
+      return own if own
+
+      node.each do |child|
+        found = find_version(child)
+        return found if found
       end
       nil
+    end
+
+    def assigned_version(node)
+      return unless node.first == :assign && version_target?(node[1])
+
+      string_value(node[2])
+    end
+
+    def version_target?(target)
+      const = target&.last
+      %i[var_field const_path_field top_const_field].include?(target&.first) &&
+        const.is_a?(Array) && const[0] == :@const && const[1] == "VERSION"
+    end
+
+    def string_value(node)
+      return unless node.is_a?(Array) && node.first == :string_literal
+
+      parts = node[1][1..]
+      parts.map { |p| p[0] == :@tstring_content ? p[1] : (return nil) }.join
     end
 
     def load_workflow(path)

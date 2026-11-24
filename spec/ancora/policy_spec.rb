@@ -166,4 +166,30 @@ RSpec.describe Ancora::Policy do
       expect(rules(root)).to eq([])
     end
   end
+
+  it "ignores a VERSION inside a =begin/=end block comment" do
+    checkout do |root|
+      write(root, "lib/foo/version.rb",
+            "=begin\nVERSION = \"9.9.9\"\n=end\nVERSION = \"1.2.3\"\n")
+      expect(rules(root, next_version: "1.2.4")).to eq([])
+      expect(rules(root, next_version: "1.2.3")).to eq([:version_behind_next])
+    end
+  end
+
+  it "reads a qualified Foo::VERSION assignment" do
+    checkout do |root|
+      write(root, "lib/foo/version.rb", "Foo::VERSION = \"1.2.3\"\n")
+      expect(rules(root, next_version: "1.2.4")).to eq([])
+      expect(rules(root, next_version: "1.2.3")).to eq([:version_behind_next])
+    end
+  end
+
+  it "reads an inline module Foo; VERSION = ...; end" do
+    checkout do |root|
+      write(root, "lib/foo/version.rb",
+            "module Foo; VERSION = \"1.2.3\"; end\n")
+      expect(rules(root, next_version: "1.2.4")).to eq([])
+      expect(rules(root, next_version: "1.2.3")).to eq([:version_behind_next])
+    end
+  end
 end
