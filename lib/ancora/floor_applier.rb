@@ -26,8 +26,8 @@ module Ancora
         end
       end
 
-      text, outcomes = edit(File.read(path), fixes, path)
-      File.write(path, text) if outcomes.any? { |o| o.status == :patched }
+      text, outcomes = edit(File.binread(path), fixes, path)
+      File.binwrite(path, text) if outcomes.any? { |o| o.status == :patched }
       outcomes
     end
 

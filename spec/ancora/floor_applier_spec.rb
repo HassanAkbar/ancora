@@ -37,6 +37,28 @@ RSpec.describe Ancora::FloorApplier do
     end
   end
 
+  it "patches a gemspec that is not valid UTF-8 and keeps its other bytes" do
+    stale = Ancora::Graph.from_data(
+      { "org/app" => { "name" => "app", "main_version" => "1.0.0",
+                       "deps" => [{ "name" => "dep",
+                                    "constraints" => ["~> 1.2.0"] }] },
+        "org/dep" => { "name" => "dep", "main_version" => "1.4.0",
+                       "deps" => [] } },
+      { "org/dep" => { "gem" => "dep", "main_version" => "1.4.0",
+                       "released" => "1.4.0", "ahead_by" => 0 } },
+    )
+    Dir.mktmpdir do |root|
+      body = "# caf\xE9\n  spec.add_dependency \"dep\", \"~> 1.2.0\"\n".b
+      path = write_gemspec(root, body)
+      outcomes = described_class.new(stale, root: root)
+        .apply(Ancora::FloorFixer.new(stale).plan.fixes)
+
+      expect(outcomes.map(&:status)).to eq [:patched]
+      expect(File.binread(path))
+        .to eq "# caf\xE9\n  spec.add_dependency \"dep\", \">= 1.4.0\"\n".b
+    end
+  end
+
   it "reports a missing gemspec without writing anything" do
     Dir.mktmpdir do |root|
       outcome = described_class.new(graph, root: root).apply(fixes).first
