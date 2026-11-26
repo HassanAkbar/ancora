@@ -36,6 +36,11 @@ RSpec.describe Ancora::CLI do
       .current_attempt.gate_result
   end
 
+  def recorded_changed(dir)
+    Ancora::Manifest.load(File.join(dir, "waves.json"))
+      .current_attempt.changed
+  end
+
   describe "floors" do
     it "lists the fixable floors and exits 1 while fixes are pending" do
       Dir.mktmpdir do |dir|
@@ -116,6 +121,24 @@ RSpec.describe Ancora::CLI do
           .to output(/suspects .*: metanorma-cli/).to_stdout
         expect(code).to eq 1
         expect(recorded_result(dir)).to eq "red"
+        expect(recorded_changed(dir)).to eq ["metanorma-cli"]
+      end
+    end
+
+    it "reopens the suspect gems as the next attempt after a red record" do
+      Dir.mktmpdir do |dir|
+        shell = RecordingShell.new(fail_on: ["jis bundle exec rake site"])
+        expect { run_gate(dir, shell, "--record") }.to output.to_stdout
+        stub_request(:get, %r{rubygems\.org/api/v1/versions/})
+          .to_return(body: "[]")
+        network, delta, chain = write_data(dir)
+        manifest = File.join(dir, "waves.json")
+
+        expect do
+          described_class.run(["step", "--chain", chain, "--network", network,
+                               "--delta", delta, "--manifest", manifest])
+        end.to output(/dispatch wave 1/).to_stdout
+        expect(Ancora::Manifest.load(manifest).current_attempt.index).to eq 2
       end
     end
 

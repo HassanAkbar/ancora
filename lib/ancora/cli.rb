@@ -271,7 +271,7 @@ module Ancora
     end
 
     def record_verdict(manifest, verdict, path)
-      manifest.record_gate!(verdict.result)
+      manifest.record_gate!(verdict.result, verdict.suspects)
       manifest.write(path)
     end
 
