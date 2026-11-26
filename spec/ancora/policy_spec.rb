@@ -235,6 +235,38 @@ RSpec.describe Ancora::Policy do
     end
   end
 
+  it "accepts YAML anchors and aliases in the release workflow" do
+    checkout do |root|
+      write(root, ".github/workflows/release.yml", <<~YML)
+        on:
+          workflow_dispatch:
+            inputs: &inputs
+              next_version:
+                required: true
+          repository_dispatch:
+            types: [ do-release ]
+        jobs:
+          release:
+            uses: metanorma/ci/.github/workflows/rubygems-release.yml@main
+          preflight:
+            if: false
+            with: *inputs
+      YML
+      expect(rules(root, next_version: "1.2.4")).to eq([])
+    end
+  end
+
+  ["false", "${{ false }}"].each do |condition|
+    it "flags a reusable release job whose condition is #{condition}" do
+      checkout do |root|
+        write(root, ".github/workflows/release.yml",
+              release_yml.sub("    uses:", "    if: #{condition}\n    uses:"))
+        expect(described_class.new(root).check.map(&:message))
+          .to include("release.yml does not call the reusable rubygems-release")
+      end
+    end
+  end
+
   it "reports a checkout that does not exist as a finding" do
     Dir.mktmpdir do |base|
       expect(rules(File.join(base, "gone"), next_version: "1.2.4"))

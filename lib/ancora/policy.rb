@@ -167,7 +167,7 @@ module Ancora
     end
 
     def load_workflow(path)
-      data = YAML.safe_load_file(path)
+      data = YAML.safe_load_file(path, aliases: true)
       data.is_a?(Hash) ? data : nil
     rescue Psych::Exception
       nil
@@ -194,8 +194,15 @@ module Ancora
     def reusable_job?(workflow)
       jobs = workflow["jobs"]
       jobs.is_a?(Hash) && jobs.values.any? do |job|
-        job.is_a?(Hash) && REUSABLE_RELEASE.match?(job["uses"].to_s)
+        job.is_a?(Hash) && REUSABLE_RELEASE.match?(job["uses"].to_s) &&
+          runnable?(job)
       end
+    end
+
+    # `if: false`, bare or wrapped in ${{ }}, skips the job on every run
+    def runnable?(job)
+      condition = job["if"].to_s.delete_prefix("${{").delete_suffix("}}").strip
+      condition != "false"
     end
 
     def finding(rule, message)
