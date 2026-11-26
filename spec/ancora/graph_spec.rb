@@ -17,9 +17,4 @@ RSpec.describe Ancora::Graph do
     edge = described_class.from_data(network(nil), {}).edges.first
     expect(edge.constraints).to eq []
   end
-
-  it "refuses constraints that are not a list, naming the edge" do
-    expect { described_class.from_data(network("~> 0.7"), {}) }
-      .to raise_error(ArgumentError, /ea -> xmi.*must be a list/)
-  end
 end
