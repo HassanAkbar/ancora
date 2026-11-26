@@ -293,6 +293,23 @@ RSpec.describe Ancora::GateRun do
     end
   end
 
+  it "keeps the bundler cause line behind more marker lines than the detail budget" do
+    Dir.mktmpdir do |dir|
+      cause = "Could not find gem 'metanorma-iso (= 3.5.1.pre.alpha.1)'.\n"
+      resolver = Array.new(20) { |i| "Gem::Resolver noise #{i}\n" }.join
+      tail = Array.new(20) { |i| "plain line #{i}\n" }.join
+      shell = Object.new
+      shell.define_singleton_method(:run) do |_command, **|
+        Ancora::Shell::Result.new(ok: false, output: resolver + cause + tail,
+                                  timed_out: false)
+      end
+      verdict = described_class.new(chain: chain, graph: graph, workdir: dir,
+                                    shell: shell).call(pins)
+
+      expect(verdict.steps.first.detail).to include("Could not find gem")
+    end
+  end
+
   it "keeps the bundler cause line when the lock fails with a long output" do
     Dir.mktmpdir do |dir|
       cause = "Could not find gem 'metanorma-iso (= 3.5.1.pre.alpha.1)'.\n"

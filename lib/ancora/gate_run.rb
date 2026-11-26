@@ -219,9 +219,11 @@ module Ancora
       redact(kept.map { |i| lines[i] }.join)
     end
 
+    # bundler states its cause after the resolver's noise, so the last
+    # marked lines are kept beside the first ones
     def marked_indexes(lines)
-      lines.each_index.select { |i| DETAIL_MARKER.match?(lines[i]) }
-        .first(DETAIL_LINES)
+      marked = lines.each_index.select { |i| DETAIL_MARKER.match?(lines[i]) }
+      marked.first(DETAIL_LINES) | marked.last(DETAIL_LINES)
     end
 
     def tail_indexes(lines)
