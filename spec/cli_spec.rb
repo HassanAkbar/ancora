@@ -107,6 +107,20 @@ RSpec.describe Ancora::CLI do
     end
   end
 
+  it "prints a bad input as one line and exits 2, not a backtrace" do
+    Dir.mktmpdir do |dir|
+      network = File.join(dir, "network.json")
+      File.write(network, JSON.generate(
+                            "lutaml/ea" => { "name" => "ea", "main_version" => "0.6.41",
+                                             "deps" => [{ "name" => "xmi", "constraints" => "~> 0.7" }] },
+                          ))
+      code = nil
+      expect { code = described_class.run(["plan", "--network", network]) }
+        .to output(/^ancora: ea -> xmi: constraints must be a list/).to_stderr
+      expect(code).to eq 2
+    end
+  end
+
   it "refuses an empty --org instead of dispatching to a bare repo path" do
     Dir.mktmpdir do |dir|
       network, delta, chain = write_data(dir)
