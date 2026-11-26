@@ -312,6 +312,10 @@ module Ancora
     def step
       options = { delta: nil, seeds: [], chain: nil, manifest: nil, format: "text" }
       parse_graph_options(options)
+      if options[:org] == ""
+        warn "step: --org needs an owner name, got an empty value"
+        return 2
+      end
 
       chain = load_chain(options)
       return 1 unless chain

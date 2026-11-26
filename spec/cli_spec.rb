@@ -107,6 +107,20 @@ RSpec.describe Ancora::CLI do
     end
   end
 
+  it "refuses an empty --org instead of dispatching to a bare repo path" do
+    Dir.mktmpdir do |dir|
+      network, delta, chain = write_data(dir)
+      code = nil
+      expect do
+        code = described_class.run(
+          ["step", "--chain", chain, "--network", network, "--delta", delta,
+           "--org", ""],
+        )
+      end.to output(/--org needs an owner/).to_stderr
+      expect(code).to eq 2
+    end
+  end
+
   it "dispatches into the --org owner instead of the production repo" do
     Dir.mktmpdir do |dir|
       network, delta, chain = write_data(dir)
