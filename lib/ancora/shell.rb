@@ -25,7 +25,7 @@ module Ancora
     private
 
     def capture(argv, chdir, env, timeout)
-      options = { chdir: chdir, pgroup: true }
+      options = { chdir: chdir, **group_option }
       Open3.popen2e(env, *argv, **options) do |stdin, out, wait|
         stdin.close
         output = []
@@ -42,11 +42,25 @@ module Ancora
                  output: output.join, timed_out: timed_out)
     end
 
+    # A timed-out command is killed with its whole process tree: a process
+    # group on POSIX, taskkill /T on Windows (no process groups or signals).
+    def group_option
+      Gem.win_platform? ? { new_pgroup: true } : { pgroup: true }
+    end
+
     def terminate(wait)
+      return kill_windows_tree(wait) if Gem.win_platform?
+
       Process.kill("TERM", -wait.pid)
       Process.kill("KILL", -wait.pid) if wait.join(5).nil?
     rescue Errno::ESRCH
       nil
+    end
+
+    def kill_windows_tree(wait)
+      system("taskkill", "/T", "/F", "/PID", wait.pid.to_s,
+             out: File::NULL, err: File::NULL)
+      wait.join(5)
     end
   end
 end
