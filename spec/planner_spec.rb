@@ -210,5 +210,30 @@ RSpec.describe Ancora::Planner do
       expect(semantic.size).to be <= structural.size
       expect(semantic.flatten).to include("metanorma-standoc")
     end
+
+    def drifted_pair(constraints)
+      network = {
+        "r1" => { "name" => "a", "main_version" => "1.1.0",
+                  "deps" => [{ "name" => "b", "constraints" => constraints }] },
+        "r2" => { "name" => "b", "main_version" => "1.1.0", "deps" => [] },
+      }
+      delta = {
+        "r1" => { "gem" => "a", "released" => "1.0.0", "ahead_by" => 1 },
+        "r2" => { "gem" => "b", "released" => "1.0.0", "ahead_by" => 1 },
+      }
+      Ancora::Graph.from_data(network, delta)
+    end
+
+    it "rejects constraints that are not a list of requirement strings" do
+      planner = described_class.new(drifted_pair(5))
+      expect { planner.plan(semantic: true) }
+        .to raise_error(ArgumentError, /list of requirement strings/)
+    end
+
+    it "names the edge when a constraint is not a requirement" do
+      planner = described_class.new(drifted_pair(["bogus"]))
+      expect { planner.plan(semantic: true) }
+        .to raise_error(ArgumentError, /a -> b: illformed constraints/)
+    end
   end
 end

@@ -67,13 +67,29 @@ module Ancora
     end
 
     def binding_edge?(edge)
-      return true if edge.constraints.nil? || edge.constraints.empty?
+      requirement = requirement_for(edge)
+      return true unless requirement
 
       released = @graph.nodes[edge.to]&.released
       return true if released.nil?
 
-      !Gem::Requirement.new(*edge.constraints)
-        .satisfied_by?(Gem::Version.new(released))
+      !requirement.satisfied_by?(Gem::Version.new(released))
+    end
+
+    # nil for an edge with no floor
+    def requirement_for(edge)
+      constraints = edge.constraints
+      return if constraints.nil?
+      unless constraints.is_a?(Array) && constraints.all?(String)
+        raise ArgumentError, "#{edge.from} -> #{edge.to}: constraints must " \
+                             "be a list of requirement strings"
+      end
+      return if constraints.empty?
+
+      Gem::Requirement.new(*constraints)
+    rescue Gem::Requirement::BadRequirementError
+      raise ArgumentError, "#{edge.from} -> #{edge.to}: illformed constraints " \
+                           "#{constraints.inspect}"
     end
 
     def waves(gems)
