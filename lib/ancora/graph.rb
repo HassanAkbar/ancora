@@ -50,12 +50,20 @@ module Ancora
         (g["deps"] || []).each do |dep|
           target = nodes[dep["name"]]
           edge = Edge.new(from: g["name"], to: dep["name"],
-                          constraints: dep["constraints"])
+                          constraints: constraints_of(g["name"], dep))
           target ? (edges << edge) : (external << edge)
         end
       end
       new(nodes, edges, external)
     end
+
+    def self.constraints_of(from, dep)
+      list = dep["constraints"] || []
+      return list if list.is_a?(Array)
+
+      raise ArgumentError, "#{from} -> #{dep['name']}: constraints must be a list, got #{list.inspect}"
+    end
+    private_class_method :constraints_of
 
     def initialize(nodes, edges, external_edges = [])
       @nodes = nodes
