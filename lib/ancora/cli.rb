@@ -154,7 +154,7 @@ module Ancora
     end
 
     def file_drift_issue(doc, repo)
-      token = ENV.fetch("GITHUB_TOKEN", nil) || ENV.fetch("GH_TOKEN", nil)
+      token = github_token
       unless token
         warn "drift-report --issue needs GITHUB_TOKEN or GH_TOKEN"
         return 1
@@ -259,10 +259,15 @@ module Ancora
 
     def run_gate(chain, graph, manifest, options)
       findings = options[:externals] ? external_findings(chain, graph) : []
-      token = ENV.fetch("GITHUB_TOKEN", nil) || ENV.fetch("GH_TOKEN", nil)
       GateRun.new(chain: chain, graph: graph, workdir: options[:workdir],
-                  shell: @shell, token: token)
+                  shell: @shell, token: github_token)
         .call(manifest.current_attempt.pins, externals: findings)
+    end
+
+    # an empty variable is no token: it would send a blank auth header
+    def github_token
+      [ENV.fetch("GITHUB_TOKEN", nil), ENV.fetch("GH_TOKEN", nil)]
+        .find { |token| !token.to_s.empty? }
     end
 
     def record_verdict(manifest, verdict, path)

@@ -119,6 +119,18 @@ RSpec.describe Ancora::CLI do
       end
     end
 
+    it "sends no git auth header for an empty GITHUB_TOKEN" do
+      Dir.mktmpdir do |dir|
+        shell = RecordingShell.new
+        allow(ENV).to receive(:fetch).and_call_original
+        allow(ENV).to receive(:fetch).with("GITHUB_TOKEN", nil).and_return("")
+        run_gate(dir, shell)
+
+        clone = shell.calls.find { |c| c[:command].start_with?("git clone") }
+        expect(clone[:env]).not_to have_key("GIT_CONFIG_COUNT")
+      end
+    end
+
     it "refuses another chain's manifest and records nothing" do
       Dir.mktmpdir do |dir|
         shell = RecordingShell.new
