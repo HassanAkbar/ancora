@@ -62,6 +62,7 @@ module Ancora
     end
 
     def call(pins, externals: [])
+      validate_pins!(pins)
       recipe = GateRecipe.new(@chain, @graph).build(pins)
       validate_commands!(recipe)
       blocked = awaiting_step(externals)
@@ -77,6 +78,14 @@ module Ancora
 
     def all_ok?(steps)
       steps.all? { |s| s.status == "ok" }
+    end
+
+    # a suite needs its repo to clone; a pin the graph cannot place has none
+    def validate_pins!(pins)
+      unknown = pins.keys.reject { |gem| @graph.nodes.key?(gem) }
+      return if unknown.empty?
+
+      raise Refused, "pinned gem(s) not in the graph: #{unknown.join(', ')}"
     end
 
     def validate_commands!(recipe)

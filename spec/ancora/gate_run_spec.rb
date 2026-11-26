@@ -4,7 +4,7 @@ require "spec_helper"
 require "tmpdir"
 
 RSpec.describe Ancora::GateRun do
-  let(:graph) { Ancora::Graph.from_data(FleetFixture::NETWORK, FleetFixture::DELTA) }
+  let(:graph) { Ancora::Graph.from_data(FleetFixture::GATE_NETWORK, FleetFixture::DELTA) }
   let(:chain) { FleetFixture.load_chain(FleetFixture::METANORMA_CHAIN) }
   let(:pins) do
     { "metanorma-iso" => "3.5.1.pre.alpha.1",
@@ -261,6 +261,18 @@ RSpec.describe Ancora::GateRun do
         end.to raise_error(described_class::Refused, /would publish/)
         expect(shell.calls).to be_empty
       end
+    end
+  end
+
+  it "refuses a pin for a gem the graph does not know, running nothing" do
+    Dir.mktmpdir do |dir|
+      shell = RecordingShell.new
+
+      expect do
+        described_class.new(chain: chain, graph: graph, workdir: dir,
+                            shell: shell).call({ "no-such-gem" => "1.0.0.pre.alpha.1" })
+      end.to raise_error(described_class::Refused, /not in the graph: no-such-gem/)
+      expect(shell.calls).to be_empty
     end
   end
 

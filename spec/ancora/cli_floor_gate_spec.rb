@@ -17,7 +17,7 @@ RSpec.describe Ancora::CLI do
     network = File.join(dir, "network.json")
     delta = File.join(dir, "delta.json")
     chain = File.join(dir, "chain.yml")
-    File.write(network, JSON.generate(FleetFixture::NETWORK))
+    File.write(network, JSON.generate(FleetFixture::GATE_NETWORK))
     File.write(delta, JSON.generate(FleetFixture::DELTA))
     File.write(chain, FleetFixture::METANORMA_CHAIN)
     [network, delta, chain]
