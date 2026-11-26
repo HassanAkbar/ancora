@@ -137,22 +137,37 @@ RSpec.describe Ancora::Machine do
     )
   end
 
-  it "halts for humans at max_attempts" do
+  it "halts instead of reopening identical pins when no gem changed" do
     stub_all_versions
     machine.step(manifest, targets)
-    2.times do
-      publish("metanorma-document", ["0.5.2.pre.alpha.1"])
-      publish("metanorma-standoc", ["3.5.1.pre.alpha.1"])
-      machine.step(manifest)
-      machine.step(manifest)
-      manifest.record_gate!("red")
-      machine.step(manifest)
-    end
     publish("metanorma-document", ["0.5.2.pre.alpha.1"])
     publish("metanorma-standoc", ["3.5.1.pre.alpha.1"])
     machine.step(manifest)
     machine.step(manifest)
     manifest.record_gate!("red")
+
+    action = machine.step(manifest)
+    expect(action).to be_a(described_class::Halt)
+    expect(action.reason).to include("attempt 1 is red and records no changed gems")
+    expect(manifest.current_attempt.index).to eq 1
+  end
+
+  it "halts for humans at max_attempts" do
+    stub_all_versions
+    machine.step(manifest, targets)
+    2.times do |i|
+      publish("metanorma-document", ["0.5.2.pre.alpha.#{i + 1}"])
+      publish("metanorma-standoc", ["3.5.1.pre.alpha.1"])
+      machine.step(manifest)
+      machine.step(manifest)
+      manifest.record_gate!("red", ["metanorma-document"])
+      machine.step(manifest)
+    end
+    publish("metanorma-document", ["0.5.2.pre.alpha.3"])
+    publish("metanorma-standoc", ["3.5.1.pre.alpha.1"])
+    machine.step(manifest)
+    machine.step(manifest)
+    manifest.record_gate!("red", ["metanorma-document"])
     action = machine.step(manifest)
     expect(action).to be_a(described_class::Halt)
     expect(action.reason).to include("3 attempts")

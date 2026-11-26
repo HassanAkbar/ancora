@@ -128,9 +128,12 @@ module Ancora
 
     # a failed gate spawns attempt K+1: fresh alpha counters only for
     # the gems whose main changed since attempt K; the rest keep their
-    # immutable attempt-K pins
+    # immutable attempt-K pins. With no changed gems recorded, a reopen
+    # would pin the same versions again, so the machine stops for humans.
     def reopen_changed(manifest)
       previous = manifest.current_attempt
+      return unchanged_halt(previous) if previous.changed.empty?
+
       outsiders = previous.changed - previous.pins.keys
       unless outsiders.empty?
         raise Error, "changed gem(s) #{outsiders.join(', ')} are not in " \
@@ -142,6 +145,11 @@ module Ancora
       end)
       manifest.open_attempt(pins, previous.waves)
       dispatch_wave(manifest, 0)
+    end
+
+    def unchanged_halt(attempt)
+      Halt.new(reason: "attempt #{attempt.index} is red and records no " \
+                       "changed gems; nothing to re-attempt")
     end
 
     def dispatch_wave(manifest, index)
