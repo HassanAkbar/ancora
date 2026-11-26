@@ -80,8 +80,8 @@ module Ancora
         return promote_wave(manifest, 0)
       end
 
-      return Halt.new(reason: halt_reason(manifest)) if exhausted?(manifest)
       return Gate.new(attempt_index: manifest.current_attempt.index) unless manifest.current_attempt.gate_result == "red"
+      return Halt.new(reason: halt_reason(manifest)) if exhausted?(manifest)
 
       reopen_changed(manifest)
     end

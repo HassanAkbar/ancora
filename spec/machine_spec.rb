@@ -174,6 +174,28 @@ RSpec.describe Ancora::Machine do
     expect(action.reason).to include("max 3")
   end
 
+  context "with max_attempts 2" do
+    let(:chain_yaml) { "#{FleetFixture::METANORMA_CHAIN}max_attempts: 2\n" }
+
+    it "gates the last allowed attempt before it halts" do
+      stub_all_versions
+      machine.step(manifest, targets)
+      publish("metanorma-document", ["0.5.2.pre.alpha.1"])
+      publish("metanorma-standoc", ["3.5.1.pre.alpha.1"])
+      machine.step(manifest)
+      machine.step(manifest)
+      manifest.record_gate!("red", ["metanorma-document"])
+      machine.step(manifest)
+      publish("metanorma-document", ["0.5.2.pre.alpha.2"])
+      machine.step(manifest)
+      machine.step(manifest)
+
+      action = machine.step(manifest)
+      expect(action).to be_a(described_class::Gate)
+      expect(action.attempt_index).to eq 2
+    end
+  end
+
   it "refuses a red gate naming gems outside the attempt's pins" do
     stub_all_versions
     machine.step(manifest, targets)
