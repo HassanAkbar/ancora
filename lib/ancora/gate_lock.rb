@@ -11,6 +11,8 @@ module Ancora
   # prerelease - a need with no satisfying final blocks the lock.
   class GateLock
     SOURCE = "https://rubygems.org"
+    # the shape Gem::Version accepts, with no quote or backslash that could end the literal
+    PLAIN_VERSION = /\A[0-9]+(\.[0-9a-zA-Z]+)*(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?\z/
 
     def initialize(chain, graph, externals: [])
       @chain = chain
@@ -39,7 +41,7 @@ module Ancora
         %(source "#{SOURCE}"),
         "",
       ]
-      body = pinned.keys.sort.map { |gem| %(gem "#{gem}", "#{pinned[gem]}") }
+      body = pinned.keys.sort.map { |gem| gem_line(gem, pinned[gem]) }
       missing = (inventory - pinned.keys).sort
       body.concat(missing.map { |gem| "# #{gem}: no version on record" })
       body.concat(external_pins)
@@ -97,9 +99,15 @@ module Ancora
       externals.merge(pins(candidates)).merge(candidates)
     end
 
+    def gem_line(gem, version)
+      raise ArgumentError, "#{gem} pin #{version.inspect} is not a version" unless PLAIN_VERSION.match?(version)
+
+      %(gem "#{gem}", "#{version}")
+    end
+
     def external_pins
       pins = @externals.select { |f| f.status == :satisfied }
-        .sort_by(&:gem).map { |f| %(gem "#{f.gem}", "#{f.latest_final}") }
+        .sort_by(&:gem).map { |f| gem_line(f.gem, f.latest_final) }
       return [] if pins.empty?
 
       pins.unshift("# external chains - finals (promote-gate truth)")
