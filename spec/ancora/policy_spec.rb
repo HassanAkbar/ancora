@@ -235,6 +235,25 @@ RSpec.describe Ancora::Policy do
     end
   end
 
+  it "reports a checkout that does not exist as a finding" do
+    Dir.mktmpdir do |base|
+      expect(rules(File.join(base, "gone"), next_version: "1.2.4"))
+        .to eq([:checkout])
+    end
+  end
+
+  it "reads a checkout whose path contains glob brackets" do
+    Dir.mktmpdir do |base|
+      root = File.join(base, "gem[1]")
+      FileUtils.mkdir_p(root)
+      Open3.capture2e("git", "init", "-q", chdir: root)
+      write(root, "lib/foo/version.rb", "VERSION = \"1.2.3\"\n")
+      write(root, ".github/workflows/release.yml", release_yml)
+      write(root, ".gitignore", "/Gemfile.lock\n")
+      expect(rules(root, next_version: "1.2.4")).to eq([])
+    end
+  end
+
   it "reports a malformed next_version as a finding instead of raising" do
     checkout do |root|
       expect(rules(root, next_version: "abc")).to eq([:version_behind_next])

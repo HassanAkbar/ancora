@@ -30,6 +30,10 @@ module Ancora
     # Findings for every violated rule; empty means the repo conforms.
     # Without a next_version the version rule is skipped (nothing to compare).
     def check
+      unless File.directory?(@root)
+        return [finding(:checkout, "#{@root} is not a directory")]
+      end
+
       RULES.flat_map { |rule| send(rule) }
     end
 
