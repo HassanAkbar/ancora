@@ -7,8 +7,13 @@ module Ancora
   # injected so specs run offline.
   class IssueSink
     API_HOST = "api.github.com"
+    REPOSITORY = %r{\A[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*\z}
 
     def initialize(repo, token:, http: Net::HTTP)
+      unless REPOSITORY.match?(repo)
+        raise ArgumentError, "repo must be OWNER/NAME, got #{repo.inspect}"
+      end
+
       @repo = repo
       @token = token
       @http = http
