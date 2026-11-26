@@ -22,10 +22,11 @@ module Ancora
 
     DEFAULT_MAX_ATTEMPTS = 3
 
-    def initialize(chain:, graph:, oracle:)
+    def initialize(chain:, graph:, oracle:, org: nil)
       @chain = chain
       @graph = graph
       @oracle = oracle
+      @org = org
     end
 
     def step(manifest, targets = {})
@@ -147,8 +148,7 @@ module Ancora
       attempt = manifest.current_attempt
       wave = attempt.waves[index]
       items = wave.map do |gem|
-        Item.new(gem: gem, repo: @graph.nodes[gem]&.repo,
-                 version: attempt.pins[gem])
+        Item.new(gem: gem, repo: target_repo(gem), version: attempt.pins[gem])
       end
       DispatchWave.new(index: index, items: items)
     end
@@ -156,10 +156,18 @@ module Ancora
     def promote_wave(manifest, index)
       attempt = manifest.promoted_from
       items = attempt.waves[index].map do |gem|
-        Item.new(gem: gem, repo: @graph.nodes[gem]&.repo,
-                 version: final(attempt, gem))
+        Item.new(gem: gem, repo: target_repo(gem), version: final(attempt, gem))
       end
       PromoteWave.new(index: index, items: items)
+    end
+
+    # the owner override retargets dispatch and promotion only; the graph
+    # keeps the collected repos, so inventory matching is unaffected
+    def target_repo(gem)
+      repo = @graph.nodes[gem]&.repo
+      return repo unless @org && repo
+
+      "#{@org}/#{repo.split('/', 2).last}"
     end
 
     def fresh_candidate(gem, previous)

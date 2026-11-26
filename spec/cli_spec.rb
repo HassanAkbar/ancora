@@ -107,6 +107,25 @@ RSpec.describe Ancora::CLI do
     end
   end
 
+  it "dispatches into the --org owner instead of the production repo" do
+    Dir.mktmpdir do |dir|
+      network, delta, chain = write_data(dir)
+      stub_request(:get, %r{rubygems\.org/api/v1/versions/})
+        .to_return(body: "[]")
+      out = capture_stdout do
+        described_class.run(
+          ["step", "--chain", chain, "--network", network, "--delta", delta,
+           "--format", "json", "--org", "metanorma-sandbox"],
+        )
+      end
+      expect(JSON.parse(out)["items"].first).to eq(
+        "gem" => "metanorma-document",
+        "repo" => "metanorma-sandbox/metanorma-document",
+        "version" => "0.5.2.pre.alpha.1",
+      )
+    end
+  end
+
   it "approves a wave through the manifest" do
     Dir.mktmpdir do |dir|
       manifest = File.join(dir, "waves.json")
