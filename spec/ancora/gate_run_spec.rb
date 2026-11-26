@@ -288,6 +288,32 @@ RSpec.describe Ancora::GateRun do
     end
   end
 
+  it "keeps the bundler cause line when the lock fails with a long output" do
+    Dir.mktmpdir do |dir|
+      cause = "Could not find gem 'metanorma-iso (= 3.5.1.pre.alpha.1)'.\n"
+      noise = Array.new(30) { |i| "resolving line #{i}\n" }.join
+      shell = Object.new
+      shell.define_singleton_method(:run) do |_command, **|
+        Ancora::Shell::Result.new(ok: false, output: cause + noise,
+                                  timed_out: false)
+      end
+      verdict = described_class.new(chain: chain, graph: graph, workdir: dir,
+                                    shell: shell).call(pins)
+
+      expect(verdict.steps.first.detail).to include("Could not find gem")
+      expect(verdict.steps.first.detail).to end_with("resolving line 29\n")
+    end
+  end
+
+  it "runs every gate command with RUBYOPT unset" do
+    Dir.mktmpdir do |dir|
+      shell = RecordingShell.new
+      run_gate(shell, dir)
+
+      expect(shell.calls.map { |c| c[:env] }).to all(include("RUBYOPT" => nil))
+    end
+  end
+
   it "resolves a relative workdir to an absolute path" do
     Dir.mktmpdir do |dir|
       Dir.chdir(dir) do

@@ -39,11 +39,14 @@ module Ancora
       /\brake\b.*\brelease\b/
     )
 
-    # suite and canary commands never see publishing credentials (nil unsets)
-    SCRUBBED_ENV = %w[GEM_HOST_API_KEY RUBYGEMS_API_KEY GITHUB_TOKEN GH_TOKEN]
+    # commands never see publishing credentials; RUBYOPT from an outer
+    # `bundle exec` would inject a backtrace into bundler's own failure output
+    SCRUBBED_ENV = %w[GEM_HOST_API_KEY RUBYGEMS_API_KEY GITHUB_TOKEN GH_TOKEN
+                      RUBYOPT]
       .to_h { |name| [name, nil] }.freeze
 
     DETAIL_LINES = 12
+    DETAIL_MARKER = /Could not find|Gem::|Error/
     SUITE_GEMFILE = "Gemfile.ancora"
 
     def initialize(chain:, graph:, workdir:, shell: Shell.new, token: nil,
@@ -204,11 +207,24 @@ module Ancora
                else "failed"
                end
       Step.new(name: name, kind: kind, status: status,
-               detail: tail(result.output), gems: gems)
+               detail: detail(result.output), gems: gems)
     end
 
-    def tail(output)
-      output.to_s.lines.last(DETAIL_LINES).join.then { |t| redact(t) }
+    # the cause line of a failure is often not in the last lines, so the
+    # first marked lines are kept beside the tail
+    def detail(output)
+      lines = output.to_s.lines
+      kept = (marked_indexes(lines) | tail_indexes(lines)).sort
+      redact(kept.map { |i| lines[i] }.join)
+    end
+
+    def marked_indexes(lines)
+      lines.each_index.select { |i| DETAIL_MARKER.match?(lines[i]) }
+        .first(DETAIL_LINES)
+    end
+
+    def tail_indexes(lines)
+      ([lines.size - DETAIL_LINES, 0].max...lines.size).to_a
     end
 
     def redact(text)
