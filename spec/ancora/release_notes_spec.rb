@@ -29,4 +29,45 @@ RSpec.describe Ancora::ReleaseNotes do
     expect(described_class.new([]).render("1.2.4"))
       .to include("No merged pull requests")
   end
+
+  it "rejects input that is not an array of pull requests" do
+    object = { "number" => 1, "mergedAt" => "2026-11-01" }
+    expect { described_class.new(object) }
+      .to raise_error(ArgumentError, /array of objects/)
+  end
+
+  it "rejects a null entry" do
+    expect { described_class.new([nil]) }
+      .to raise_error(ArgumentError, /array of objects/)
+  end
+
+  it "rejects a pull request without an integer number" do
+    merged = { "title" => "a", "mergedAt" => "2026-11-01T00:00:00Z" }
+    expect { described_class.new([merged, merged]).render("1.2.4") }
+      .to raise_error(ArgumentError, /number/)
+  end
+
+  it "rejects a mergedAt that is not a timestamp string" do
+    prs = [
+      { "number" => 1, "title" => "a", "mergedAt" => "2026-11-01" },
+      { "number" => 2, "title" => "b", "mergedAt" => 1_700_000_000 },
+    ]
+    expect { described_class.new(prs).render("1.2.4") }
+      .to raise_error(ArgumentError, /mergedAt/)
+  end
+
+  it "rejects an author that is not an object" do
+    prs = [{ "number" => 1, "title" => "a", "mergedAt" => "2026-11-01",
+             "author" => "bob" }]
+    expect { described_class.new(prs).render("1.2.4") }
+      .to raise_error(ArgumentError, /author/)
+  end
+
+  it "keeps a title with a newline on one list item" do
+    prs = [{ "number" => 2, "title" => "ok\n## Injected",
+             "mergedAt" => "2026-11-01", "author" => { "login" => "a" } }]
+    notes = described_class.new(prs).render("1.2.4")
+    expect(notes).to include("- ok ## Injected (#2 @a)")
+    expect(notes).not_to match(/^## Injected/)
+  end
 end
