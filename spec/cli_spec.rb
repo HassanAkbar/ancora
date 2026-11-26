@@ -140,6 +140,22 @@ RSpec.describe Ancora::CLI do
     end
   end
 
+  it "reports a hand-edited manifest in one line and exits 2" do
+    Dir.mktmpdir do |dir|
+      manifest = File.join(dir, "waves.json")
+      File.write(manifest, JSON.generate(
+                             "chain" => "metanorma", "state" => "planned",
+                             "attempts" => [{ "index" => 1, "pins" => { "metanorma-cli" => "1.17.0" },
+                                              "created_at" => "x", "waves" => [], "gate_result" => nil,
+                                              "changed" => [] }]
+                           ))
+      code = nil
+      expect { code = described_class.run(["approve", "--manifest", manifest]) }
+        .to output(/pin 1\.17\.0 is not a candidate version/).to_stderr
+      expect(code).to eq 2
+    end
+  end
+
   it "checks publication truth against the oracle" do
     stub_versions("metanorma-cli", ["1.17.0"])
     code = nil

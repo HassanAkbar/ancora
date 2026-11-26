@@ -19,6 +19,9 @@ module Ancora
 
     def self.run(argv, shell: Shell.new)
       new(argv, shell: shell).run
+    rescue Manifest::Invalid => e
+      warn e.message
+      2
     end
 
     def initialize(argv, shell: Shell.new)
