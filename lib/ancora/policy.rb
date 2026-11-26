@@ -104,10 +104,24 @@ module Ancora
     end
 
     def lockfile_uncommitted
+      unless own_repository?
+        return [finding(:lockfile_uncommitted,
+                        "not its own git repository; the Gemfile.lock " \
+                        "ignore rule cannot be checked")]
+      end
+
       [
         (tracked?("Gemfile.lock") ? "Gemfile.lock is tracked by git" : nil),
         (ignored?("Gemfile.lock") ? nil : "Gemfile.lock is not in .gitignore"),
       ].compact.map { |why| finding(:lockfile_uncommitted, why) }
+    end
+
+    # Git searches upward for a repository, so a gem nested in another one
+    # would be judged by that repository's .gitignore instead of its own.
+    def own_repository?
+      out, status = Open3.capture2("git", "rev-parse", "--show-toplevel",
+                                   chdir: @root, err: File::NULL)
+      status.success? && File.identical?(out.strip, @root)
     end
 
     def tracked?(name)

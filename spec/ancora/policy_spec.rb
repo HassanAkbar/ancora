@@ -160,6 +160,18 @@ RSpec.describe Ancora::Policy do
     end
   end
 
+  it "does not borrow a parent repository's ignore rule for a nested gem" do
+    Dir.mktmpdir do |parent|
+      Open3.capture2e("git", "init", "-q", chdir: parent)
+      write(parent, ".gitignore", "Gemfile.lock\n")
+      gem = File.join(parent, "gem")
+      write(gem, "lib/foo/version.rb", "VERSION = \"1.2.3\"\n")
+      write(gem, ".github/workflows/release.yml", release_yml)
+      write(gem, "Gemfile.lock", "GEM\n")
+      expect(rules(gem, next_version: "1.2.4")).to eq([:lockfile_uncommitted])
+    end
+  end
+
   it "accepts a wildcard ignore that covers Gemfile.lock" do
     checkout do |root|
       write(root, ".gitignore", "*.lock\n")
