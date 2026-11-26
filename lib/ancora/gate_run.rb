@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "shellwords"
+
 module Ancora
   # Runs a gate recipe: the GateLock full-set compile, gem suites and canary
   # corpus gate. It never publishes; every subprocess goes through the
@@ -83,10 +85,17 @@ module Ancora
     end
 
     def refuse_publishing!(commands, kind)
-      bad = commands.grep(PUBLISHING)
+      bad = commands.select { |command| publishing?(command) }
       return if bad.empty?
 
       raise Refused, "#{kind} command would publish: #{bad.join('; ')}"
+    end
+
+    # matched on the words the shell runs, so quoting cannot hide a verb
+    def publishing?(command)
+      PUBLISHING.match?(Shellwords.split(command).join(" "))
+    rescue ArgumentError
+      raise Refused, "command cannot be read: #{command}"
     end
 
     # the lock cannot be completed while an external need has no final:

@@ -240,7 +240,8 @@ RSpec.describe Ancora::GateRun do
   end
 
   ["gem push pkg/x.gem", "gem --norc push pkg/x.gem", "git push origin main",
-   "gh workflow run rubygems-release.yml", "bundle exec rake release"]
+   "gh workflow run rubygems-release.yml", "bundle exec rake release",
+   "git pu''sh origin main", "gem pu''sh pkg/x.gem"]
     .each do |command|
     it "refuses the publishing canary command #{command.inspect}" do
       Dir.mktmpdir do |dir|
@@ -260,6 +261,26 @@ RSpec.describe Ancora::GateRun do
         end.to raise_error(described_class::Refused, /would publish/)
         expect(shell.calls).to be_empty
       end
+    end
+  end
+
+  it "refuses a suite command whose quoting cannot be read" do
+    Dir.mktmpdir do |dir|
+      chain = FleetFixture.load_chain(<<~YAML)
+        name: metanorma
+        inventory:
+          orgs: [metanorma]
+          roots: [metanorma-cli]
+        gate:
+          commands: ["bundle exec rspec 'unterminated"]
+      YAML
+      shell = RecordingShell.new
+
+      expect do
+        described_class.new(chain: chain, graph: graph, workdir: dir,
+                            shell: shell).call(pins)
+      end.to raise_error(described_class::Refused, /cannot be read/)
+      expect(shell.calls).to be_empty
     end
   end
 
