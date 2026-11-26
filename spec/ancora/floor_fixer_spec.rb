@@ -41,6 +41,25 @@ RSpec.describe Ancora::FloorFixer do
     )
   end
 
+  it "skips an unreadable edge and still plans the others" do
+    fleet = graph(
+      [node("app", "1.0.0", nil) do
+        [{ "name" => "broken", "constraints" => ["not a requirement"] },
+         { "name" => "stale", "constraints" => ["~> 1.2.0"] }]
+      end,
+       node("broken", "1.0.0", nil) { [] },
+       node("stale", "1.3.0", nil) { [] }],
+      { "app" => "1.0.0", "broken" => "1.0.0", "stale" => "1.3.0" },
+    )
+    plan = described_class.new(fleet).plan
+
+    expect(plan.fixes.map(&:to)).to eq ["stale"]
+    expect(plan.skipped.map do |s|
+      [s.to, s.kind]
+    end).to eq [["broken", :unreadable]]
+    expect(plan.skipped.first.reason).to include("constraints cannot be read")
+  end
+
   it "keeps the clauses a stale pin does not replace" do
     fleet = graph(
       [node("app", "1.0.0", nil) do

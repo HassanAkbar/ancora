@@ -33,16 +33,22 @@ module Ancora
       fixes = []
       skipped = []
       scoped_edges.each do |edge|
-        kind = classify(edge)
-        next unless kind
+        outcome = plan_edge(edge)
+        next unless outcome
 
-        outcome = propose(edge, kind)
         (outcome.is_a?(Fix) ? fixes : skipped) << outcome
       end
       Plan.new(fixes: fixes, skipped: skipped)
     end
 
     private
+
+    def plan_edge(edge)
+      kind = classify(edge)
+      kind && propose(edge, kind)
+    rescue ArgumentError => e
+      skip(edge, :unreadable, "constraints cannot be read: #{e.message}")
+    end
 
     def scoped_edges
       return @graph.edges unless @chain
