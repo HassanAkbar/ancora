@@ -1,0 +1,253 @@
+= Full-stack release runbook (metanorma/metanorma#684)
+
+The whole-stack release as one command sequence with human checkpoints. Every ancora
+command below exists on this branch (`feat/ancora-fleet-tools`, PR #9) and was checked
+against its `lib/ancora/cli.rb` dispatch and option parsing. Workflow inputs were checked
+against `metanorma/ci` `main`. The companion markdown runbook in `metanorma/ci`
+(`docs/ancora-release-runbook.md`, ci#546) predates PR #9 and still marks floors,
+semantic plan, gate and verdict recording as planned; this file is the PR #9 view.
+
+Conventions:
+
+* `ancora` means `bundle exec exe/ancora` from a checkout of this repo.
+* `CHAIN=examples/metanorma.chain.yml`, `DATA=` the collector output directory
+  (`network.json`, `delta.json`), `MANIFEST=state/waves.json`.
+* *GAP* marks a step with no ancora command. The step says what is done by hand, and
+  nothing else in this file claims it is automated.
+* *HUMAN CHECKPOINT* marks a decision only a person can make. Stop there until it is given.
+* Exit codes differ by command. `check`, `tag`, `ci`, `plan` and `drift` always exit 0,
+  so read their output, not their status. `externals`, `pin`, `floors`, `policy`,
+  `gate` exit 1 when the answer is not green, and `gate` exits 2 when the manifest is
+  not the chain's open gating attempt.
+
+Releasing is the owner's decision at every stage. Nothing here publishes a stable
+version until the promote checkpoint (step 6). The chain-wide release hold in `TODO.md`
+("NO metanorma-* gem releases") stays in force until the owner lifts it.
+
+== 0. Preconditions
+
+. Collector data is fresh. *GAP*: the collector is not in this repo; it lives in the
+  gemspec-audit workspace. Regenerate `network.json` and `delta.json` there.
+. Each chain repo's `main` is green. Read the conclusion; the exit status is 0 for
+  failed, pending and missing runs alike.
++
+----
+ancora ci metanorma/metanorma-cli main
+----
++
+Green: the line reads `... completed success <sha> <url>`. Repeat per gem in the chain.
+
+HUMAN CHECKPOINT 0: owner says go, and the release hold is lifted for this wave.
+
+== 1. Drift, floors and external needs
+
+. Fleet drift for the chain. Green: no floorless edges, no stale pins, no prerelease
+  floors, no unreleased main.
++
+----
+ancora drift --network $DATA/network.json --delta $DATA/delta.json --chain $CHAIN
+----
+. Weekly-style drift report, printed as markdown. `--tags` adds one GitHub API call per
+  gem. `--issue OWNER/REPO` also files an issue, which writes to GitHub and needs the owner's
+  instruction; omit it for a local read.
++
+----
+ancora drift-report --network $DATA/network.json --delta $DATA/delta.json --chain $CHAIN --tags
+----
+. Release-policy rules, per gem checkout, against the version the owner chose.
+  Green: `policy: ok`, exit 0.
++
+----
+ancora policy --next-version X.Y.Z /path/to/checkouts/<gem>
+----
+. External-chain needs. Green: exit 0. Exit 1 means another chain must release a final
+  first, which is a release request on that chain, not something this wave can fix.
++
+----
+ancora externals --chain $CHAIN --network $DATA/network.json --delta $DATA/delta.json
+----
+. Floor fixes, dry run first. Green: `floor fixes: 0 fixable, 0 skipped`, exit 0. Exit 1
+  while fixes or skips remain.
++
+----
+ancora floors --network $DATA/network.json --delta $DATA/delta.json --chain $CHAIN
+----
+. Apply floor fixes to local checkouts only. `--apply` requires `--root`. It edits literal
+  `add_dependency` lines in `<root>/<repo>/**/<gem>.gemspec`, never commits, pushes or
+  releases. Review the diff in each checkout and open the fix PRs by hand. *GAP*: opening
+  those PRs has no ancora command.
++
+----
+ancora floors --network $DATA/network.json --delta $DATA/delta.json --chain $CHAIN --root /path/to/checkouts --apply
+----
+
+HUMAN CHECKPOINT 1: owner reviews the drift report, `externals` and the floor plan, and
+fixes the target version of every gem in the wave. The machine never invents versions:
+targets come from the gemspec on `main` or an advisory the owner approved.
+
+== 2. Plan the wave
+
+----
+ancora plan --network $DATA/network.json --delta $DATA/delta.json --chain $CHAIN --semantic
+----
+
+Green: `chain: metanorma (terminus: metanorma-cli)`, waves listed leaves first, and
+`metanorma-cli` alone in the last wave. `--semantic` also lists the floorless edges that
+still order the plan; each one is a step 1 fix before the wave is trusted. For a repair
+wave scoped to some gems, add `--seeds gem1,gem2`.
+
+HUMAN CHECKPOINT 2: owner confirms the wave membership and order.
+
+== 3. Rehearsal (releases nothing)
+
+Rehearse in the order the chain will be cut. `release-rehearsal` builds every gem, installs
+the set into an isolated `GEM_HOME`, pins bundler to the built versions and loads the flavor
+registry.
+
+----
+gh workflow run release-rehearsal.yml -R metanorma/ci -f ref=main -f manifest=.github/workflows/metanorma-chain.json
+----
+
+Green: the run's conclusion is `success`. Watch it with
+`gh run list -R metanorma/ci --workflow release-rehearsal.yml --limit 1 --json conclusion,headSha,workflowName`.
+Local equivalent: `script/release-rehearsal.sh .github/workflows/metanorma-chain.json`
+(`--build-only` or `--chain-only` to split the phases).
+
+*GAP: sandbox rehearsal.* Neither this repo nor `metanorma/ci` `main` has a
+`metanorma-sandbox` mechanism. `release-rehearsal.sh` clones each manifest repo from
+`https://github.com/<repo>` at the manifest's `ref`. Rehearsing on the sandbox org needs a
+manifest whose repos point there; that manifest does not exist yet (metanorma/metanorma#685).
+
+*GAP: clean-`GEM_HOME` relock per repo.* No ancora command. `GateRun` sets only
+`BUNDLE_GEMFILE` and inherits `GEM_HOME`. Until this is automated, relock each consuming repo
+by hand in a scratch clone with a fresh `GEM_HOME`, run its suite there, and never on the
+working checkout.
+
+HUMAN CHECKPOINT 3: rehearsal green, owner confirms the wave.
+
+== 4. Candidates
+
+Open the attempt and read the next action. The first run on a new manifest opens attempt 1
+and returns `dispatch_wave`. Run it with a real manifest path; without `--manifest` nothing
+is saved.
+
+----
+ancora step --chain $CHAIN --network $DATA/network.json --delta $DATA/delta.json --manifest $MANIFEST --format json > action.json
+ancora step --chain $CHAIN --network $DATA/network.json --delta $DATA/delta.json --manifest $MANIFEST
+----
+
+The JSON `action` is one of `dispatch_wave`, `gate`, `promote_wave`, `hold`, `halt`, `done`.
+The text form also prints the `suite <gem> (<repo>)` lines that the gate workflow needs.
+
+For `dispatch_wave`, dispatch candidates `X.Y.Z.pre.alpha.N` in dry-run first. Green: the
+run prints what it would dispatch and dispatches nothing. Pass `release_workflow` explicitly:
+the workflow default is `release.yml`, and the gem repos publish through `rubygems-release.yml`.
+
+----
+gh workflow run ancora-candidate.yml -R metanorma/ci -f items="$(jq -c .items action.json)" -f release_workflow=rubygems-release.yml -f ref=main -f dry_run=true
+----
+
+Then the real run, with `dry_run=false`. It dispatches each gem's release workflow and waits
+for the version on rubygems.org. Candidates are prereleases, so they are invisible to default
+resolvers. Re-run `ancora step` until the action is `gate`.
+
+HUMAN CHECKPOINT 4: owner OKs publishing the prerelease candidates (`dry_run=false`).
+
+== 5. Gate
+
+When the action is `gate`, the attempt is open for gating. The gate locks the whole candidate
+set (GateLock), compiles it with `bundle lock` and `bundle install`, runs each wave gem's
+suite on its `main` with the candidate pins overlaid, then runs the canary commands and each
+configured corpus.
+
+Locally:
+
+----
+ancora gate --chain $CHAIN --network $DATA/network.json --delta $DATA/delta.json --manifest $MANIFEST --workdir .ancora-gate --externals --record
+----
+
+Or in CI, one dispatch per attempt:
+
+----
+gh workflow run ancora-gate.yml -R metanorma/ci -f chain=chain.yml -f pins='<pins JSON>' -f suites='<suites JSON>' -f corpora="$(jq -c .corpora action.json)" -f ancora_ref=feat/ancora-fleet-tools
+----
+
+`ancora-gate.yml` defaults `ancora_ref` to `todo/corpus-gate`. Pass this PR's branch until it
+lands on `main`. Green: `gate attempt N: GREEN` and exit 0. Red: the output names the failing
+step and `suspects`, and exit is 1. Exit 2 means the manifest is not in the gating state.
+
+*GAP: next attempt after red.* `--record` stores the verdict with `changed = []`, and nothing
+in this branch computes which gems' `main` changed. `Machine#reopen_changed` then reopens with
+the same pins, so attempt K+1 is not a fix attempt. Until that is fixed, a red gate needs the
+owner to correct the cause and the manifest to be edited by hand.
+
+HUMAN CHECKPOINT 5: owner reads the green gate (suites, canary, every configured corpus) and
+decides to promote.
+
+== 6. Promote
+
+Record the approval. `promote_approval: manual` is the default in `chain.yml`, so the machine
+holds a green attempt until this runs.
+
+----
+ancora approve --manifest $MANIFEST
+ancora step --chain $CHAIN --network $DATA/network.json --delta $DATA/delta.json --manifest $MANIFEST --format json > action.json
+----
+
+The step holds again if any external need still lacks a final, and the hold line names the
+need. When the action is `promote_wave`, dispatch the finals in wave order:
+
+----
+gh workflow run ancora-promote.yml -R metanorma/ci -f items="$(jq -c .items action.json)" -f gate_result=green -f gate_run_url=<green ancora-gate run URL> -f release_workflow=rubygems-release.yml -f ref=main
+----
+
+Green: the `approve` job runs in the GitHub environment `ancora-promote`, and the finals are
+awaited on rubygems.org one by one. The environment and its required reviewers must exist in
+the calling repository; `metanorma/ci` does not create them. Repeat `ancora step` for each wave.
+
+HUMAN CHECKPOINT 6a: owner runs `ancora approve`.
+HUMAN CHECKPOINT 6b: owner approves the `ancora-promote` environment in the Actions UI.
+
+== 7. Tag and publish verification
+
+Per released gem, after its publish leg. Read the output: these commands exit 0 either way.
+
+----
+ancora check <gem> <version>
+ancora tag metanorma/<gem> <version>
+ancora ci metanorma/<gem> main
+----
+
+Green: `<gem> <version>: published`, `<repo> v<version>: tagged`, and a `success` line for
+the latest `main` run.
+
+Terminus release notes carry the wave. The input is the merged-PR list in the shape `gh pr list`
+prints:
+
+----
+gh pr list -R metanorma/<repo> --state merged --json number,title,author,mergedAt,url > prs.json
+ancora notes --prs prs.json --version X.Y.Z > RELEASE_NOTES.md
+----
+
+The standing verifier checks stub, tag, GitHub Release and rubygems agreement weekly. Dispatch
+it after the wave:
+
+----
+gh workflow run release-coherence.yml -R metanorma/ci
+----
+
+Raise floors to the finals in a follow-up PR (never to prereleases), then re-run
+`ancora drift --network ... --delta ... --chain $CHAIN`. Expect no prerelease floors and no
+stale pins.
+
+HUMAN CHECKPOINT 7: owner closes the wave. `ancora step` returns `done` only after the
+terminus is the last wave and its finals are published.
+
+== 8. Rollback
+
+*GAP: there is no rollback command.* Nothing in this branch yanks, reverts or re-points a
+published version. The ci rehearsal doc treats rubygems.org versions as permanent. Any rollback,
+including yanking a published gem, is the owner's decision and is done outside ancora. Record the
+decision in the manifest's history by hand.
+
+HUMAN CHECKPOINT 8: owner decides the rollback and its scope.
