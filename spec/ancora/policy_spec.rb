@@ -201,4 +201,43 @@ RSpec.describe Ancora::Policy do
       expect(rules(root, next_version: "1.2.3")).to eq([:version_behind_next])
     end
   end
+
+  it "checks the last VERSION assignment, which is the one Ruby loads" do
+    checkout do |root|
+      write(root, "lib/foo/version.rb",
+            "module Foo\n  VERSION = \"1.2.3\"\n  VERSION = \"9.9.9\"\nend\n")
+      expect(rules(root, next_version: "9.9.5")).to eq([:version_behind_next])
+    end
+  end
+
+  it "flags a VERSION reassigned from a non-literal" do
+    checkout do |root|
+      write(root, "lib/foo/version.rb",
+            "module Foo\n  VERSION = \"1.2.3\"\n  VERSION = compute\nend\n")
+      expect(rules(root, next_version: "1.2.4")).to eq([:version_behind_next])
+    end
+  end
+
+  it "flags an empty VERSION string" do
+    checkout do |root|
+      write(root, "lib/foo/version.rb", "VERSION = \"\"\n")
+      messages = described_class.new(root, next_version: "1.2.4")
+        .check.map(&:message)
+      expect(messages)
+        .to eq(["lib/foo/version.rb: \"\" is not a valid version"])
+    end
+  end
+
+  it "reports a malformed VERSION as a finding instead of raising" do
+    checkout do |root|
+      write(root, "lib/foo/version.rb", "VERSION = \"abc\"\n")
+      expect(rules(root, next_version: "1.2.4")).to eq([:version_behind_next])
+    end
+  end
+
+  it "reports a malformed next_version as a finding instead of raising" do
+    checkout do |root|
+      expect(rules(root, next_version: "abc")).to eq([:version_behind_next])
+    end
+  end
 end

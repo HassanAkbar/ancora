@@ -37,24 +37,45 @@ module Ancora
 
     def version_behind_next
       return [] unless @next_version
-
-      files = Dir.glob(File.join(@root, "lib", "**", "version.rb"))
-      if files.empty?
-        return [finding(:version_behind_next,
-                        "no lib/**/version.rb found")]
+      unless version?(@next_version)
+        return [version_problem("next_version #{@next_version.inspect} " \
+                                "is not a version")]
       end
 
-      files.filter_map do |file|
-        current = version_literal(File.read(file))
-        relative = file.delete_prefix("#{@root}/")
-        if current.nil?
-          finding(:version_behind_next, "#{relative}: no VERSION literal")
-        elsif Gem::Version.new(current) >= Gem::Version.new(@next_version)
-          finding(:version_behind_next,
-                  "#{relative}: #{current} is not behind " \
-                  "next_version #{@next_version}")
-        end
+      files = Dir.glob("lib/**/version.rb", base: @root)
+      return [version_problem("no lib/**/version.rb found")] if files.empty?
+
+      files.flat_map { |relative| version_findings(relative) }
+    end
+
+    def version_findings(relative)
+      literals = version_literals(File.read(File.join(@root, relative)))
+      if literals.empty? || literals.include?(nil)
+        return [version_problem("#{relative}: no VERSION literal")]
       end
+
+      literals.uniq.filter_map do |current|
+        version_problem_for(relative, current)
+      end
+    end
+
+    def version_problem_for(relative, current)
+      unless version?(current)
+        return version_problem("#{relative}: #{current.inspect} " \
+                               "is not a valid version")
+      end
+      return unless Gem::Version.new(current) >= Gem::Version.new(@next_version)
+
+      version_problem("#{relative}: #{current} is not behind " \
+                      "next_version #{@next_version}")
+    end
+
+    def version_problem(message)
+      finding(:version_behind_next, message)
+    end
+
+    def version?(text)
+      !text.strip.empty? && Gem::Version.correct?(text)
     end
 
     def release_workflow
@@ -99,31 +120,20 @@ module Ancora
       status.success?
     end
 
-    # First `VERSION = "x"` constant assignment (bare or qualified) found by
-    # parsing with Ripper; comments and =begin blocks never reach the tree and
-    # no repo code is executed.
-    def version_literal(text)
+    # Every `VERSION = ...` assignment (bare or qualified) found by parsing
+    # with Ripper; nil marks one whose value is not a string literal. Comments
+    # and =begin blocks never reach the tree and no repo code is executed.
+    def version_literals(text)
       tree = Ripper.sexp(text)
-      tree && find_version(tree)
+      tree ? version_assignments(tree) : []
     end
 
-    def find_version(node)
-      return unless node.is_a?(Array)
+    def version_assignments(node)
+      return [] unless node.is_a?(Array)
 
-      own = assigned_version(node)
-      return own if own
-
-      node.each do |child|
-        found = find_version(child)
-        return found if found
-      end
-      nil
-    end
-
-    def assigned_version(node)
-      return unless node.first == :assign && version_target?(node[1])
-
-      string_value(node[2])
+      assigned = node.first == :assign && version_target?(node[1])
+      (assigned ? [string_value(node[2])] : []) +
+        node.flat_map { |child| version_assignments(child) }
     end
 
     # `"1.2.3".freeze` (also with empty parens) is the string literal itself.
