@@ -108,10 +108,14 @@ module Ancora
 
     def proposal(kind, constraints, released)
       floor = ">= #{released}"
-      return [floor] unless kind == :prerelease_floor
-
-      kept = constraints.reject { |c| prerelease_clause?(c) }
+      kept = constraints.reject do |c|
+        kind == :prerelease_floor ? prerelease_clause?(c) : lower_clause?(c)
+      end
       (kept + [floor]).uniq
+    end
+
+    def lower_clause?(clause)
+      LOWER_OPS.include?(Gem::Requirement.parse(clause).first)
     end
 
     def covers_prerelease?(constraints, released)

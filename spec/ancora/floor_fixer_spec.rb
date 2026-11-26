@@ -41,6 +41,18 @@ RSpec.describe Ancora::FloorFixer do
     )
   end
 
+  it "keeps the clauses a stale pin does not replace" do
+    fleet = graph(
+      [node("app", "1.0.0", nil) do
+        [{ "name" => "stale", "constraints" => ["~> 1.2.0", "< 2"] }]
+      end,
+       node("stale", "1.3.0", nil) { [] }],
+      { "app" => "1.0.0", "stale" => "1.3.0" },
+    )
+    fixes = described_class.new(fleet).plan.fixes
+    expect(fixes.map(&:proposed)).to eq [["< 2", ">= 1.3.0"]]
+  end
+
   it "raises each broken floor to the released final" do
     proposals = plan.fixes.to_h { |f| [f.to, [f.kind, f.proposed]] }
 
