@@ -11,6 +11,14 @@ RSpec.describe Ancora::GateRun do
       "metanorma-cli" => "1.18.0.pre.alpha.1" }
   end
 
+  def suite_env(dir, gem_dir)
+    home = File.join(dir, "gem_home")
+    described_class::SCRUBBED_ENV.merge(
+      "BUNDLE_GEMFILE" => File.join(gem_dir, "Gemfile.ancora"),
+      "GEM_HOME" => home, "GEM_PATH" => home
+    )
+  end
+
   def run_gate(shell, dir, **opts)
     described_class.new(chain: chain, graph: graph, workdir: dir, shell: shell,
                         **opts)
@@ -47,14 +55,11 @@ RSpec.describe Ancora::GateRun do
       shell = RecordingShell.new
       verdict = run_gate(shell, dir, token: "token-123")
       suites = shell.calls.select { |c| c[:command] == "bundle exec rspec" }
-
       expect(verdict).to be_green
       expect(suites.map { |c| [c[:chdir], c[:env]] }).to eq(
         %w[metanorma-cli metanorma-iso].map do |gem|
           gem_dir = File.join(dir, "suites", gem)
-          [gem_dir, described_class::SCRUBBED_ENV.merge(
-            "BUNDLE_GEMFILE" => File.join(gem_dir, "Gemfile.ancora"),
-          )]
+          [gem_dir, suite_env(dir, gem_dir)]
         end,
       )
       expect(shell.commands[2]).to eq(
@@ -302,6 +307,21 @@ RSpec.describe Ancora::GateRun do
 
       expect(verdict.steps.first.detail).to include("Could not find gem")
       expect(verdict.steps.first.detail).to end_with("resolving line 29\n")
+    end
+  end
+
+  it "installs gate gems into a fresh GEM_HOME under the workdir" do
+    Dir.mktmpdir do |dir|
+      stale = File.join(dir, "gem_home", "gems", "stale-1.0", "lib")
+      FileUtils.mkdir_p(stale)
+      shell = RecordingShell.new
+      run_gate(shell, dir)
+      home = File.join(dir, "gem_home")
+      bundler = shell.calls.select { |c| c[:command].start_with?("bundle") }
+
+      expect(bundler.map { |c| c[:env] })
+        .to all(include("GEM_HOME" => home, "GEM_PATH" => home))
+      expect(File.exist?(stale)).to be false
     end
   end
 

@@ -102,6 +102,7 @@ module Ancora
     end
 
     def compile(pins, externals)
+      reset_gem_home
       FileUtils.mkdir_p(lock_dir)
       lock = GateLock.new(@chain, @graph, externals: externals)
       File.write(File.join(lock_dir, "Gemfile"), lock.gemfile(pins))
@@ -236,11 +237,25 @@ module Ancora
     end
 
     def bundle_env
-      SCRUBBED_ENV.merge("BUNDLE_GEMFILE" => File.join(lock_dir, "Gemfile"))
+      gate_env.merge("BUNDLE_GEMFILE" => File.join(lock_dir, "Gemfile"))
     end
 
     def suite_env(dir)
-      SCRUBBED_ENV.merge("BUNDLE_GEMFILE" => File.join(dir, SUITE_GEMFILE))
+      gate_env.merge("BUNDLE_GEMFILE" => File.join(dir, SUITE_GEMFILE))
+    end
+
+    # a fresh home per gate run: installs never reuse gems from an earlier
+    # attempt or from the caller's machine
+    def gate_env
+      SCRUBBED_ENV.merge("GEM_HOME" => gem_home, "GEM_PATH" => gem_home)
+    end
+
+    def gem_home
+      File.join(@workdir, "gem_home")
+    end
+
+    def reset_gem_home
+      FileUtils.rm_rf(gem_home)
     end
 
     # the token travels in the environment, never in argv or the URL
