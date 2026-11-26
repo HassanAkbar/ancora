@@ -225,8 +225,7 @@ RSpec.describe Ancora::Planner do
     end
 
     it "rejects constraints that are not a list of requirement strings" do
-      planner = described_class.new(drifted_pair(5))
-      expect { planner.plan(semantic: true) }
+      expect { described_class.new(drifted_pair(5)).plan(semantic: true) }
         .to raise_error(ArgumentError, /list of requirement strings/)
     end
 

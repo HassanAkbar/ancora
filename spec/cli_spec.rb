@@ -115,37 +115,28 @@ RSpec.describe Ancora::CLI do
     expect(code).to eq 2
   end
 
-  it "refuses an empty --org instead of dispatching to a bare repo path" do
+  it "refuses a non-list constraint in drift and drift-report in one line" do
     Dir.mktmpdir do |dir|
-      network, delta, chain = write_data(dir)
-      code = nil
-      expect do
-        code = described_class.run(
-          ["step", "--chain", chain, "--network", network, "--delta", delta,
-           "--org", ""],
-        )
-      end.to output(/--org needs an owner/).to_stderr
-      expect(code).to eq 2
+      network, delta, = write_data(dir)
+      fleet = FleetFixture::NETWORK.merge(
+        "metanorma/metanorma-cli" => { "name" => "metanorma-cli", "main_version" => "1.17.0",
+                                       "deps" => [{ "name" => "metanorma-standoc", "constraints" => 5 }] },
+      )
+      File.write(network, JSON.generate(fleet))
+      %w[drift drift-report].each do |command|
+        code = nil
+        expect { code = described_class.run([command, "--network", network, "--delta", delta]) }
+          .to output(/^ancora: metanorma-cli -> metanorma-standoc: constraints must be a list/).to_stderr
+        expect(code).to eq 2
+      end
     end
   end
 
-  it "dispatches into the --org owner instead of the production repo" do
-    Dir.mktmpdir do |dir|
-      network, delta, chain = write_data(dir)
-      stub_request(:get, %r{rubygems\.org/api/v1/versions/})
-        .to_return(body: "[]")
-      out = capture_stdout do
-        described_class.run(
-          ["step", "--chain", chain, "--network", network, "--delta", delta,
-           "--format", "json", "--org", "metanorma-sandbox"],
-        )
-      end
-      expect(JSON.parse(out)["items"].first).to eq(
-        "gem" => "metanorma-document",
-        "repo" => "metanorma-sandbox/metanorma-document",
-        "version" => "0.5.2.pre.alpha.1",
-      )
-    end
+  it "names a missing network file in one line and exits 2" do
+    code = nil
+    expect { code = described_class.run(["plan", "--network", "/no/such/network.json"]) }
+      .to output(/^ancora: \/no\/such\/network\.json: no such network file/).to_stderr
+    expect(code).to eq 2
   end
 
   it "approves a wave through the manifest" do

@@ -312,18 +312,13 @@ module Ancora
     def step
       options = { delta: nil, seeds: [], chain: nil, manifest: nil, format: "text" }
       parse_graph_options(options)
-      if options[:org] == ""
-        warn "step: --org needs an owner name, got an empty value"
-        return 2
-      end
-
       chain = load_chain(options)
       return 1 unless chain
 
       graph = Graph.load(options.fetch(:network), options[:delta])
       path = options[:manifest]
       manifest = path ? Manifest.load(path, chain.name) : Manifest.new(chain.name)
-      action = Machine.new(chain: chain, graph: graph, org: options[:org],
+      action = Machine.new(chain: chain, graph: graph,
                            oracle: Oracle::Rubygems.new).step(manifest)
       emit(action, manifest, chain, graph, options[:format])
       manifest.write(path) if path
@@ -495,7 +490,6 @@ module Ancora
         o.on("--apply") { |v| options[:apply] = v }
         o.on("--workdir PATH") { |v| options[:workdir] = v }
         o.on("--record") { |v| options[:record] = v }
-        o.on("--org OWNER") { |v| options[:org] = v }
       end.parse!(@argv)
     end
 
