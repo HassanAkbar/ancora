@@ -2,9 +2,11 @@
 
 require "spec_helper"
 
-RSpec.describe Ancora::Chain, "sandbox rehearsal" do
-  let(:root) { File.expand_path("..", __dir__) }
-  let(:chain) { Ancora::Chain.load(File.join(root, "examples/sandbox.chain.yml")) }
+RSpec.describe Ancora::Chain do
+  let(:root) { File.expand_path("../..", __dir__) }
+  let(:chain) do
+    described_class.load(File.join(root, "examples/sandbox.chain.yml"))
+  end
   let(:graph) do
     fixture = File.join(root, "examples/sandbox/fixture")
     Ancora::Graph.load(File.join(fixture, "network.json"),
