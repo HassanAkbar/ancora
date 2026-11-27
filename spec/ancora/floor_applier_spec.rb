@@ -19,7 +19,7 @@ RSpec.describe Ancora::FloorApplier do
   def write_gemspec(root, body)
     path = File.join(root, "app", "app.gemspec")
     FileUtils.mkdir_p(File.dirname(path))
-    File.write(path, body)
+    File.binwrite(path, body)
     path
   end
 
