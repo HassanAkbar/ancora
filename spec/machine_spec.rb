@@ -344,4 +344,24 @@ RSpec.describe Ancora::Machine do
                             oracle: Ancora::Oracle::Rubygems.new)
     expect(m.step(manifest)).to be_a(described_class::Done)
   end
+
+  describe "dispatch org" do
+    context "when the chain declares one" do
+      let(:chain_yaml) do
+        "#{FleetFixture::METANORMA_CHAIN}dispatch:\n  org: metanorma-sandbox\n"
+      end
+
+      it "retargets dispatch into the configured org, keeping the repo name" do
+        stub_all_versions
+        expect(machine.step(manifest, targets).items.map(&:repo))
+          .to eq(["metanorma-sandbox/metanorma-document"])
+      end
+    end
+
+    it "dispatches to the collected repo when the chain declares no org" do
+      stub_all_versions
+      expect(machine.step(manifest, targets).items.map(&:repo))
+        .to eq(["metanorma/metanorma-document"])
+    end
+  end
 end

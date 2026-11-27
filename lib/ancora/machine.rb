@@ -169,7 +169,7 @@ module Ancora
     end
 
     def repo_of(gem)
-      @graph.nodes[gem]&.repo
+      @chain.dispatch_repo(@graph.nodes[gem]&.repo)
     end
 
     def fresh_candidate(gem, previous)
